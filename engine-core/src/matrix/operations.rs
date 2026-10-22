@@ -1,11 +1,12 @@
 // Modulo donde se realizaran las operaciones de matrices
 
-use std::vec;
+use std::rc::Rc;
 
+#[derive(Clone, Debug)]
 pub struct Matrix {
-    rows: usize,      // Numero de columnas
-    cols: usize,      // Numero de filas
-    values: Vec<f32>, // Valores, van de izquierda a derecha y de arriba a abajo
+    rows: usize,              // Numero de columnas
+    cols: usize,              // Numero de filas
+    pub values: Rc<Vec<f32>>, // Valores, van de izquierda a derecha y de arriba a abajo
 }
 
 impl Matrix {
@@ -13,9 +14,37 @@ impl Matrix {
         if rows * cols != values.len() {
             return Err("Numero de valores no es igual a las dimensiones de la matriz".to_string());
         }
-        Ok(Self { rows, cols, values })
+        Ok(Self {
+            rows,
+            cols,
+            values: Rc::new(values),
+        })
     }
 
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    pub fn get(&self, row: usize, col: usize) -> Result<f32, String> {
+        if row * self.cols + col > self.rows * self.cols {
+            return Err("Elemento en esa posición no existe".to_string());
+        }
+
+        Ok(self.values[row * self.cols + col])
+    }
+
+    pub fn set(&mut self, row: usize, col: usize, value: f32) {
+        if row * self.cols + col > self.rows * self.cols {
+            return ();
+        }
+
+        let mut_values = Rc::make_mut(&mut self.values);
+
+        mut_values[row * self.cols + col] = value;
+    }
     // get_row no necesita result, ya que es solamente llamado por la funcion de multiplicar
     fn get_row(&self, index: usize) -> Result<&[f32], String> {
         if index > self.rows - 1 {
@@ -52,7 +81,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: other_matrix.cols,
-            values,
+            values: Rc::new(values),
         })
     }
 
@@ -64,14 +93,14 @@ impl Matrix {
         let values = self
             .values
             .iter()
-            .zip(&other_matrix.values)
+            .zip(&*other_matrix.values)
             .map(|(value_1, value_2)| value_1 + value_2)
             .collect();
 
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values,
+            values: Rc::new(values),
         })
     }
 
@@ -82,14 +111,14 @@ impl Matrix {
         let values = self
             .values
             .iter()
-            .zip(&other_matrix.values)
+            .zip(&*other_matrix.values)
             .map(|(value_1, value_2)| value_1 - value_2)
             .collect();
 
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values,
+            values: Rc::new(values),
         })
     }
 
@@ -109,7 +138,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values,
+            values: Rc::new(values),
         })
     }
 
@@ -125,7 +154,20 @@ impl Matrix {
         Matrix {
             rows: self.cols,
             cols: self.cols,
-            values,
+            values: Rc::new(values),
+        }
+    }
+
+    pub fn map<F>(&self, mut f: F) -> Matrix
+    where
+        F: FnMut(f32) -> f32,
+    {
+        let values = self.values.iter().map(|val| f(*val)).collect();
+
+        Matrix {
+            rows: self.rows,
+            cols: self.cols,
+            values: Rc::new(values),
         }
     }
 }
@@ -196,7 +238,7 @@ mod tests {
             let result = matrix_1.sum(&matrix_2).unwrap();
             // 1+3 = 4 | 3+1 = 4
             // 2+5 = 7 | 5+1 = 6
-            assert_eq!(result.values, vec![4.0, 4.0, 7.0, 6.0])
+            assert_eq!(result.values, Rc::new(vec![4.0, 4.0, 7.0, 6.0]))
         }
 
         #[test]
@@ -207,7 +249,7 @@ mod tests {
             let result = matrix_1.sub(&matrix_2).unwrap();
             // 1-3 = -2 | 3-1 = 2
             // 2-5 = -3 | 5-1 = 4
-            assert_eq!(result.values, vec![-2.0, 2.0, -3.0, 4.0])
+            assert_eq!(result.values, Rc::new(vec![-2.0, 2.0, -3.0, 4.0]))
         }
 
         #[test]
@@ -215,7 +257,7 @@ mod tests {
             let matrix_1 = Matrix::new(2, 2, vec![1.0, 3.0, 2.0, 5.0]).unwrap();
 
             let result = matrix_1.sub(&matrix_1).unwrap();
-            assert_eq!(result.values, vec![0.0, 0.0, 0.0, 0.0])
+            assert_eq!(result.values, Rc::new(vec![0.0, 0.0, 0.0, 0.0]))
         }
     }
 
@@ -234,7 +276,7 @@ mod tests {
 
             assert_eq!(result.rows, 2);
             assert_eq!(result.cols, 2);
-            assert_eq!(result.values, vec![3.0, 2.0, 4.0, 4.0]);
+            assert_eq!(result.values, Rc::new(vec![3.0, 2.0, 4.0, 4.0]));
         }
 
         #[test]
@@ -267,7 +309,7 @@ mod tests {
 
             assert_eq!(result.rows, 3);
             assert_eq!(result.cols, 2);
-            assert_eq!(result.values, expected_values);
+            assert_eq!(result.values, Rc::new(expected_values));
         }
 
         #[test]
@@ -291,7 +333,7 @@ mod tests {
 
             let result = matrix.broadcast_vec(vector_vacio).unwrap();
             // El bucle no corre, por tanto devuelve el vector de zeros inicializado
-            assert_eq!(result.values, vec![0.0, 0.0, 0.0]);
+            assert_eq!(result.values, Rc::new(vec![0.0, 0.0, 0.0]));
         }
     }
     #[test]
@@ -303,6 +345,6 @@ mod tests {
         // 1.0 | 3.0
         // 2.0 | 1.0
 
-        assert_eq!(trasposed.values, vec![1.0, 3.0, 2.0, 1.0])
+        assert_eq!(trasposed.values, Rc::new(vec![1.0, 3.0, 2.0, 1.0]))
     }
 }
