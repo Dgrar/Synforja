@@ -4,9 +4,10 @@ use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub struct Matrix {
-    rows: usize,              // Numero de columnas
-    cols: usize,              // Numero de filas
-    pub values: Rc<Vec<f32>>, // Valores, van de izquierda a derecha y de arriba a abajo
+    rows: usize, // Numero de columnas
+    cols: usize, // Numero de filas
+    // Como se sabe que vamos a tener que clonar las matrices varias veces, usamos un ref counter para que clonar sea O(1)
+    pub values: Rc<[f32]>, // Valores, van de izquierda a derecha y de arriba a abajo
 }
 
 impl Matrix {
@@ -17,7 +18,7 @@ impl Matrix {
         Ok(Self {
             rows,
             cols,
-            values: Rc::new(values),
+            values: Rc::from(values.into_boxed_slice()),
         })
     }
 
@@ -29,10 +30,9 @@ impl Matrix {
     }
 
     pub fn get(&self, row: usize, col: usize) -> Result<f32, String> {
-        if row * self.cols + col > self.rows * self.cols {
+        if row >= self.rows || col >= self.cols {
             return Err("Elemento en esa posición no existe".to_string());
         }
-
         Ok(self.values[row * self.cols + col])
     }
 
@@ -81,7 +81,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: other_matrix.cols,
-            values: Rc::new(values),
+            values: Rc::from(values.into_boxed_slice()),
         })
     }
 
@@ -90,7 +90,7 @@ impl Matrix {
             return Err("Las matrices deben ser de iguales dimensiones".to_string());
         }
 
-        let values = self
+        let values: Vec<f32> = self
             .values
             .iter()
             .zip(&*other_matrix.values)
@@ -100,7 +100,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::new(values),
+            values: Rc::from(values.into_boxed_slice()),
         })
     }
 
@@ -108,7 +108,7 @@ impl Matrix {
         if self.rows != other_matrix.rows || self.cols != other_matrix.cols {
             return Err("Las matrices deben ser de iguales dimensiones".to_string());
         }
-        let values = self
+        let values: Vec<f32> = self
             .values
             .iter()
             .zip(&*other_matrix.values)
@@ -118,18 +118,20 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::new(values),
+            values: Rc::from(values.into_boxed_slice()),
         })
     }
 
-    pub fn broadcast_vec(&self, vector: Vec<f32>) -> Result<Matrix, String> {
-        if vector.len() != self.rows - 1 {
-            return Err("Vector no coincide con el numero de filas".to_string());
+    pub fn broadcast_vec(&self, vector: &Vec<f32>) -> Result<Matrix, String> {
+        if vector.len() != self.rows {
+            return Err(
+                "El tamaño del vector no coincide con el número de filas de la matriz".to_string(),
+            );
         }
 
         let mut values = vec![0.0; self.rows * self.cols];
 
-        for i in 0..vector.len() {
+        for i in 0..self.rows {
             for j in 0..self.cols {
                 values[self.cols * i + j] = vector[i] + self.values[self.cols * i + j];
             }
@@ -138,7 +140,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::new(values),
+            values: Rc::from(values.into_boxed_slice()),
         })
     }
 
@@ -153,8 +155,8 @@ impl Matrix {
 
         Matrix {
             rows: self.cols,
-            cols: self.cols,
-            values: Rc::new(values),
+            cols: self.rows,
+            values: Rc::from(values.into_boxed_slice()),
         }
     }
 
@@ -162,12 +164,12 @@ impl Matrix {
     where
         F: FnMut(f32) -> f32,
     {
-        let values = self.values.iter().map(|val| f(*val)).collect();
+        let values: Vec<f32> = self.values.iter().map(|val| f(*val)).collect();
 
         Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::new(values),
+            values: Rc::from(values.into_boxed_slice()),
         }
     }
 }
@@ -178,26 +180,19 @@ mod tests {
 
     #[test]
     fn test_matrix_creation() {
-        // Podemos hacer unwrap porque sabemos que esta bien creada
         let matrix = Matrix::new(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
-        assert_eq!(matrix.rows, 2);
-        assert_eq!(matrix.cols, 3);
+        assert_eq!(matrix.rows(), 2);
+        assert_eq!(matrix.cols(), 3);
     }
 
     #[test]
     fn test_matrix_creation_wrong_dimensions() {
-        // Tiene que fallar ya que deberia haber 2x2=4 valores, y he creado un vector de 3
         let matrix = Matrix::new(2, 2, vec![1.0, 2.0, 3.0]);
-
-        match matrix {
-            Ok(_) => panic!(),
-            Err(e) => println!("{}", e),
-        }
+        assert!(matrix.is_err());
     }
 
     #[test]
     fn test_get_row() {
-        // Sabemos que matriz es correcta, hacemos unwrap, tambien sabemos que las filas existen
         let matrix = Matrix::new(3, 2, vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0]).unwrap();
         assert_eq!(matrix.get_row(0).unwrap(), &[10.0, 20.0]);
         assert_eq!(matrix.get_row(1).unwrap(), &[30.0, 40.0]);
@@ -207,11 +202,7 @@ mod tests {
     #[test]
     fn test_index_out_of_range() {
         let matrix = Matrix::new(3, 2, vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0]).unwrap();
-
-        match matrix.get_row(3) {
-            Ok(_) => panic!(),
-            Err(e) => println!("{e}"),
-        }
+        assert!(matrix.get_row(3).is_err());
     }
 
     mod sum_and_substract {
@@ -219,45 +210,32 @@ mod tests {
 
         #[test]
         fn test_incompatible_dimentions() {
-            let matrix_1 =
-                Matrix::new(3, 3, vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).unwrap();
-            let matrix_2 = Matrix::new(3, 2, vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).unwrap();
-            let result_matrix = matrix_1.sum(&matrix_2);
-
-            match result_matrix {
-                Ok(_) => panic!(),
-                Err(e) => println!("{}", e),
-            }
+            let matrix_1 = Matrix::new(3, 3, vec![0.0; 9]).unwrap();
+            let matrix_2 = Matrix::new(3, 2, vec![0.0; 6]).unwrap();
+            assert!(matrix_1.sum(&matrix_2).is_err());
         }
 
         #[test]
         fn test_sum() {
             let matrix_1 = Matrix::new(2, 2, vec![1.0, 3.0, 2.0, 5.0]).unwrap();
             let matrix_2 = Matrix::new(2, 2, vec![3.0, 1.0, 5.0, 1.0]).unwrap();
-            // Sabemos que operación esta bien, importa el resultado
             let result = matrix_1.sum(&matrix_2).unwrap();
-            // 1+3 = 4 | 3+1 = 4
-            // 2+5 = 7 | 5+1 = 6
-            assert_eq!(result.values, Rc::new(vec![4.0, 4.0, 7.0, 6.0]))
+            assert_eq!(&*result.values, &[4.0, 4.0, 7.0, 6.0]);
         }
 
         #[test]
         fn test_sub() {
             let matrix_1 = Matrix::new(2, 2, vec![1.0, 3.0, 2.0, 5.0]).unwrap();
             let matrix_2 = Matrix::new(2, 2, vec![3.0, 1.0, 5.0, 1.0]).unwrap();
-
             let result = matrix_1.sub(&matrix_2).unwrap();
-            // 1-3 = -2 | 3-1 = 2
-            // 2-5 = -3 | 5-1 = 4
-            assert_eq!(result.values, Rc::new(vec![-2.0, 2.0, -3.0, 4.0]))
+            assert_eq!(&*result.values, &[-2.0, 2.0, -3.0, 4.0]);
         }
 
         #[test]
         fn test_a_minus_a_is_null() {
             let matrix_1 = Matrix::new(2, 2, vec![1.0, 3.0, 2.0, 5.0]).unwrap();
-
             let result = matrix_1.sub(&matrix_1).unwrap();
-            assert_eq!(result.values, Rc::new(vec![0.0, 0.0, 0.0, 0.0]))
+            assert_eq!(&*result.values, &[0.0, 0.0, 0.0, 0.0]);
         }
     }
 
@@ -266,26 +244,25 @@ mod tests {
 
         #[test]
         fn test_square_matrices() {
-            // Creamos 2 matrices 2x2
             let matrix_1 = Matrix::new(2, 2, vec![1.0, 2.0, 2.0, 2.0]).unwrap();
             let matrix_2 = Matrix::new(2, 2, vec![1.0, 2.0, 1.0, 0.0]).unwrap();
-
-            // (1*1 + 2*1) = 3 | (1*2 + 2*0) = 2
-            // (2*1 + 2*1) = 3 | (2*2 + 2*0) = 4
             let result = matrix_1.multiply(&matrix_2).unwrap();
 
-            assert_eq!(result.rows, 2);
-            assert_eq!(result.cols, 2);
-            assert_eq!(result.values, Rc::new(vec![3.0, 2.0, 4.0, 4.0]));
+            // CORREGIDO: La multiplicación matemática correcta da:
+            // [1*1 + 2*1, 1*2 + 2*0] -> [3.0, 2.0]
+            // [2*1 + 2*1, 2*2 + 2*0] -> [4.0, 4.0]
+            assert_eq!(result.rows(), 2);
+            assert_eq!(result.cols(), 2);
+            assert_eq!(&*result.values, &[3.0, 2.0, 4.0, 4.0]);
         }
 
         #[test]
         fn test_identity_matrix() {
             let matrix = Matrix::new(2, 2, vec![5.0, 6.0, 7.0, 8.0]).unwrap();
             let identity = Matrix::new(2, 2, vec![1.0, 0.0, 0.0, 1.0]).unwrap();
-
-            // Si multiplicamos por la identidad la primera matriz * la identidad debe de ser esa
             let result = matrix.multiply(&identity).unwrap();
+
+            // Comparamos los contenidos apuntados por el Rc
             assert_eq!(result.values, matrix.values);
         }
     }
@@ -297,54 +274,54 @@ mod tests {
         fn test_broadcast_vec_success() {
             // Matriz 3x2 (3 filas, 2 columnas)
             let matrix = Matrix::new(3, 2, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
-            // El vector debe de medir rows - 1 = 2 elementos
-            let vector = vec![10.0, 20.0];
+            // CORREGIDO: Ahora el vector tiene tamaño coincidente con las filas (3 filas = 3 elementos)
+            let vector = vec![10.0, 20.0, 30.0];
 
-            let result = matrix.broadcast_vec(vector).unwrap();
+            let result = matrix.broadcast_vec(&vector).unwrap();
 
-            // Fila 0 (modificada con 10.0): [1+10, 2+10] = [11.0, 12.0]
-            // Fila 1 (modificada con 20.0): [3+20, 4+20] = [23.0, 24.0]
-            // Fila 2 (fuera del rango del vector): queda inicializada a 0.0 -> [0.0, 0.0]
-            let expected_values = vec![11.0, 12.0, 23.0, 24.0, 0.0, 0.0];
+            // Fila 0 (+10.0): [1+10, 2+10] -> [11.0, 12.0]
+            // Fila 1 (+20.0): [3+20, 4+20] -> [23.0, 24.0]
+            // Fila 2 (+30.0): [5+30, 6+30] -> [35.0, 36.0]
+            let expected_values = vec![11.0, 12.0, 23.0, 24.0, 35.0, 36.0];
 
-            assert_eq!(result.rows, 3);
-            assert_eq!(result.cols, 2);
-            assert_eq!(result.values, Rc::new(expected_values));
+            assert_eq!(result.rows(), 3);
+            assert_eq!(result.cols(), 2);
+            assert_eq!(&*result.values, expected_values.as_slice());
         }
 
         #[test]
         fn test_broadcast_vec_wrong_dimensions() {
             let matrix = Matrix::new(3, 2, vec![0.0; 6]).unwrap();
-            // Espera tamaño 2 (3 - 1), pasamos 3 para forzar el fallo de dimension
-            let vector_incorrecto = vec![1.0, 2.0, 3.0];
-            let result = matrix.broadcast_vec(vector_incorrecto);
+            // Pasamos tamaño 2 cuando la matriz espera tamaño 3 (número de filas)
+            let vector_incorrecto = vec![1.0, 2.0];
+            let result = matrix.broadcast_vec(&vector_incorrecto);
 
-            match result {
-                Ok(_) => panic!(),
-                Err(e) => println!("{}", e),
-            }
+            assert!(result.is_err());
         }
 
         #[test]
-        fn test_broadcast_vec_one_row_edge_case() {
-            // Matriz de 1 sola fila implica que rows - 1 = 0 (vector vacío)
+        fn test_broadcast_vec_one_row() {
             let matrix = Matrix::new(1, 3, vec![5.0, 5.0, 5.0]).unwrap();
-            let vector_vacio: Vec<f32> = vec![];
+            let vector = vec![10.0];
 
-            let result = matrix.broadcast_vec(vector_vacio).unwrap();
-            // El bucle no corre, por tanto devuelve el vector de zeros inicializado
-            assert_eq!(result.values, Rc::new(vec![0.0, 0.0, 0.0]));
+            let result = matrix.broadcast_vec(&vector).unwrap();
+            assert_eq!(&*result.values, &[15.0, 15.0, 15.0]);
         }
     }
+
     #[test]
-    fn traspose() {
-        let test_matrix = Matrix::new(2, 2, vec![1.0, 2.0, 3.0, 1.0]).unwrap();
+    fn test_traspose() {
+        // Testeamos una matriz no cuadrada (2x3) para asegurar que intercambia filas y columnas correctamente
+        let test_matrix = Matrix::new(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
         let trasposed = test_matrix.traspose();
 
-        // 1.0 | 3.0
-        // 2.0 | 1.0
-
-        assert_eq!(trasposed.values, Rc::new(vec![1.0, 3.0, 2.0, 1.0]))
+        // Resultado esperado (3x2):
+        // 1.0 | 4.0
+        // 2.0 | 5.0
+        // 3.0 | 6.0
+        assert_eq!(trasposed.rows(), 3);
+        assert_eq!(trasposed.cols(), 2);
+        assert_eq!(&*trasposed.values, &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
     }
 }
