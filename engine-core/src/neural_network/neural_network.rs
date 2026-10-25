@@ -9,6 +9,11 @@ enum Activation {
     SoftMax,
 }
 
+struct NetworkCharacteristics {
+    topology: Vec<LayerTopology>,
+    loss_fn: Box<dyn LossFn>,
+}
+
 impl Activation {
     fn apply(&self, input: &Matrix) -> Matrix {
         match self {
@@ -48,6 +53,36 @@ impl Activation {
                     }
                 }
                 temp.clone()
+            }
+        }
+    }
+    // mat created es la matriz dada del forward pass != a la de 1 capa
+    fn derive(&self, post_activation: &Matrix, mat_created: &Matrix) -> Matrix {
+        match self {
+            Activation::ReLu => {
+                post_activation.map_with(mat_created, |activated_value, created_val| {
+                    if activated_value > 0.0 {
+                        created_val
+                    } else {
+                        0.0
+                    }
+                })
+            }
+            // Derivada: valor creado * valor de la matriz activada * (1.0 - y)
+            Activation::Sigmoid => {
+                post_activation.map_with(mat_created, |activated_value, created_val| {
+                    created_val * activated_value * (1.0 - activated_value)
+                })
+            }
+            // Derivada: valor creado * (1.0 - (valor de la matriz activada)^2)
+            Activation::Tanh => post_activation
+                .map_with(mat_created, |activated_value, created_val| {
+                    created_val * (1.0 - activated_value.powi(2))
+                }),
+            Activation::SoftMax => {
+                post_activation.map_with(mat_created, |activated_value, created_val| {
+                    created_val * activated_value * (1.0 - activated_value)
+                })
             }
         }
     }
@@ -121,6 +156,33 @@ impl LayerCache {
             pre_activation,
             post_activation,
         }
+    }
+}
+
+struct LayerTopology {
+    size: usize,
+    activation: Activation,
+}
+
+trait LossFn {
+    fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String>;
+}
+
+struct MSELoss;
+
+impl LossFn for MSELoss {
+    fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        Ok(predicted
+            .values
+            .iter()
+            .zip(&*expected.values)
+            .map(|(pred_val, expected_val)| (pred_val - expected_val).powi(2))
+            .sum::<f32>()
+            / (predicted.rows() as f32 * predicted.cols() as f32))
     }
 }
 
@@ -242,6 +304,44 @@ mod test_activations_and_network {
             let result = network.forward(&input);
             println!("{:?}", result);
             assert!(result.is_err());
+        }
+    }
+    mod loss_functions {
+        use super::*;
+        #[test]
+        fn mse_loss_works() {
+            let predicted_matrix = Matrix::new(1, 2, vec![1.0, 2.0]).unwrap();
+            let expected_matrix = Matrix::new(1, 2, vec![0.0, 0.0]).unwrap();
+            // ((1-0)^2 + (2-0) ^2 ) / 2 = 5/2 = 2.5
+            let loss = MSELoss
+                .get_loss(&predicted_matrix, &expected_matrix)
+                .unwrap_or(0.0);
+
+            assert_eq!(loss, 2.5)
+        }
+        #[test]
+        fn is_reversable() {
+            let predicted_matrix = Matrix::new(1, 2, vec![1.0, 2.0]).unwrap();
+            let expected_matrix = Matrix::new(1, 2, vec![0.0, 0.0]).unwrap();
+            // ((0-1)^2 + (0-2) ^2 ) / 2 = 5/2 = 2.5
+            // Al elevar al cuadrado no importa el signo
+            let loss = MSELoss
+                .get_loss(&expected_matrix, &predicted_matrix)
+                .unwrap_or(0.0);
+
+            assert_eq!(loss, 2.5)
+        }
+        #[test]
+        fn err_when_incompatible() {
+            let predicted_matrix = Matrix::new(1, 2, vec![1.0, 2.0]).unwrap();
+            let expected_matrix = Matrix::new(2, 1, vec![0.0, 0.0]).unwrap();
+
+            let loss = MSELoss.get_loss(&predicted_matrix, &expected_matrix);
+
+            match loss {
+                Ok(_) => panic!(),
+                Err(err) => println!("Success!: {err}"),
+            }
         }
     }
 }

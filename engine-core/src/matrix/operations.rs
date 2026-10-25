@@ -1,6 +1,6 @@
 // Modulo donde se realizaran las operaciones de matrices
 
-use std::rc::Rc;
+use std::{rc::Rc, slice::Iter};
 
 #[derive(Clone, Debug)]
 pub struct Matrix {
@@ -165,6 +165,23 @@ impl Matrix {
         F: FnMut(f32) -> f32,
     {
         let values: Vec<f32> = self.values.iter().map(|val| f(*val)).collect();
+
+        Matrix {
+            rows: self.rows,
+            cols: self.cols,
+            values: Rc::from(values.into_boxed_slice()),
+        }
+    }
+    pub fn map_with<F>(&self, other: &Matrix, mut f: F) -> Matrix
+    where
+        F: FnMut(f32, f32) -> f32,
+    {
+        let values: Vec<f32> = self
+            .values
+            .iter()
+            .zip(&*other.values)
+            .map(|(self_val, other_val)| f(*self_val, *other_val))
+            .collect();
 
         Matrix {
             rows: self.rows,
