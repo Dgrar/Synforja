@@ -2,7 +2,29 @@
 
 use std::{rc::Rc, slice::Iter};
 
-#[derive(Clone, Debug)]
+use rand::{Rng, RngExt};
+
+pub enum Initialization {
+    Xavier,
+    He,
+}
+
+impl Initialization {
+    pub fn get_limits(&self, inputs: usize, outputs: usize) -> (f32, f32) {
+        match self {
+            Initialization::Xavier => {
+                let standart_deviation = (6.0 / (inputs + outputs) as f32).powf(0.5);
+                (-standart_deviation, standart_deviation)
+            }
+            Initialization::He => {
+                let standart_deviation = (2.0 / inputs as f32).powf(0.5);
+                (0.0, standart_deviation)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Matrix {
     rows: usize, // Numero de columnas
     cols: usize, // Numero de filas
@@ -20,6 +42,26 @@ impl Matrix {
             cols,
             values: Rc::from(values.into_boxed_slice()),
         })
+    }
+
+    pub fn from_random(
+        rng: &mut dyn Rng,
+        input_size: usize,
+        output_size: usize,
+        initialization: Initialization,
+    ) -> Result<Matrix, String> {
+        if input_size == 0 || output_size == 0 {
+            return Err(
+                "Dimensiones incorrectas al crear la matriz con weights aleatorias".to_string(),
+            );
+        }
+
+        let (bottom_limit, top_limit) = initialization.get_limits(input_size, output_size);
+        let values: Vec<f32> = (0..input_size * output_size)
+            .map(|_| rng.random_range(bottom_limit..top_limit))
+            .collect();
+
+        Matrix::new(input_size, output_size, values)
     }
 
     pub fn rows(&self) -> usize {

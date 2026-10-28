@@ -1,3 +1,4 @@
+use rand::{prelude::Rng, rng, SeedableRng};
 use std::rc::Rc;
 
 use crate::*;
@@ -98,31 +99,38 @@ struct Layer {
 }
 
 impl Network {
-    pub fn forward(&self, input: &Matrix) -> Result<(Matrix, Vec<LayerCache>), String> {
-        let caches: Vec<LayerCache> = self
-            .layers
-            .iter()
-            .scan(input.clone(), |current_signal, layer| {
-                let (next_signal, cache) = match layer.forward(current_signal) {
-                    Ok((mat, lc)) => (mat, lc),
-                    Err(_) => return None,
+    pub fn random(rng: &mut dyn Rng, topology: &[LayerTopology]) -> Result<Network, String> {
+        let layers = topology
+            .windows(2)
+            .map(|layer_topology| {
+                let adjusted_topology = LayerTopology {
+                    size: layer_topology[0].size,
+                    activation: layer_topology[1].activation.clone(),
                 };
-
-                *current_signal = next_signal;
-
-                Some(cache)
+                Layer::random(rng, adjusted_topology, layer_topology[1].size)
             })
-            .collect();
-        if caches.len() != self.layers.len() {
-            return Err("Hubo un error al hacer el forward pass".to_string());
+            .collect::<Result<Vec<Layer>, String>>()?;
+
+        Ok(Network { layers })
+    }
+
+    pub fn forward(&self, input: &Matrix) -> Result<(Matrix, Vec<LayerCache>), String> {
+        let mut current_signal = input.clone();
+        let mut caches = Vec::with_capacity(self.layers.len());
+
+        for layer in &self.layers {
+            let (next_signal, cache) = layer
+                .forward(&current_signal)
+                .map_err(|e| format!("Error en forward de la capa: {}", e))?;
+
+            current_signal = next_signal;
+            caches.push(cache);
         }
-        let predictions = match caches
+
+        let predictions = caches
             .last()
             .map(|last_cache| last_cache.post_activation.clone())
-        {
-            Some(pred) => pred,
-            None => return Err("Hubo un error al hacer el forward pass".to_string()),
-        };
+            .ok_or_else(|| "Hubo un error al obtener las predicciones finales".to_string())?;
 
         Ok((predictions, caches))
     }
@@ -153,6 +161,32 @@ impl Network {
 }
 
 impl Layer {
+    pub fn random(
+        rng: &mut dyn Rng,
+        topology: LayerTopology,
+        output_size: usize,
+    ) -> Result<Layer, String> {
+        if topology.size == 0 || output_size == 0 {
+            return Err(
+                "Dimensiones incorrectas al crear la red neuronal de forma aleatoria".to_string(),
+            );
+        }
+
+        let initialization = match topology.activation {
+            Activation::ReLu => Initialization::He,
+            _ => Initialization::Xavier,
+        };
+
+        let weights = Matrix::from_random(rng, output_size, topology.size, initialization)?;
+        let bias = vec![0.0; output_size];
+
+        Ok(Layer {
+            weights,
+            bias,
+            activation: topology.activation,
+        })
+    }
+
     pub fn forward(&self, input: &Matrix) -> Result<(Matrix, LayerCache), String> {
         let multiplied_matrix: Matrix = self.weights.multiply(input)?;
         let new_matrix = multiplied_matrix.broadcast_vec(&self.bias)?;
@@ -222,6 +256,7 @@ impl LayerCache {
     }
 }
 
+#[derive(Debug, Clone)]
 struct LayerTopology {
     size: usize,
     activation: Activation,
@@ -263,6 +298,7 @@ impl LossFn for MSELoss {
 #[cfg(test)]
 mod test_activations_and_network {
     use super::*;
+    use rand_chacha::ChaCha8Rng;
 
     mod activations {
         use super::*;
@@ -568,5 +604,110 @@ mod test_activations_and_network {
                 );
             }
         }
+    }
+    #[test]
+    fn test_network_random_initialization_with_chacha() {
+        let seed = [42; 32];
+        let mut rng = ChaCha8Rng::from_seed(seed);
+
+        let topology = vec![
+            LayerTopology {
+                size: 4,
+                activation: Activation::ReLu,
+            },
+            LayerTopology {
+                size: 3,
+                activation: Activation::Tanh,
+            },
+            LayerTopology {
+                size: 2,
+                activation: Activation::Sigmoid,
+            },
+        ];
+
+        let network_res = Network::random(&mut rng, &topology);
+
+        assert!(
+            network_res.is_ok(),
+            "La creación de la red falló inesperadamente"
+        );
+        let network = network_res.unwrap();
+
+        assert_eq!(
+            network.layers.len(),
+            2,
+            "La red debería tener exactamente 2 capas"
+        );
+
+        let layer_1 = &network.layers[0];
+        assert_eq!(
+            layer_1.weights.rows(),
+            3,
+            "La capa 1 debe tener 3 filas (salidas)"
+        );
+        assert_eq!(
+            layer_1.weights.cols(),
+            4,
+            "La capa 1 debe tener 4 columnas (entradas)"
+        );
+        assert_eq!(
+            layer_1.bias.len(),
+            3,
+            "La capa 1 debe tener un vector de bias de tamaño 3"
+        );
+        assert_eq!(
+            layer_1.activation,
+            Activation::Tanh,
+            "La capa 1 debe heredar la activación Tanh"
+        );
+
+        let layer_2 = &network.layers[1];
+        assert_eq!(
+            layer_2.weights.rows(),
+            2,
+            "La capa 2 debe tener 2 filas (salidas)"
+        );
+        assert_eq!(
+            layer_2.weights.cols(),
+            3,
+            "La capa 2 debe tener 3 columnas (entradas)"
+        );
+        assert_eq!(
+            layer_2.bias.len(),
+            2,
+            "La capa 2 debe tener un vector de bias de tamaño 2"
+        );
+        assert_eq!(
+            layer_2.activation,
+            Activation::Sigmoid,
+            "La capa 2 debe heredar la activación Sigmoid"
+        );
+
+        for layer in &network.layers {
+            for &weight_value in layer.weights.values.iter() {
+                assert!(
+                    weight_value.is_finite(),
+                    "Se detectó un peso que no es finito (NaN o Inf)"
+                );
+            }
+        }
+
+        assert_eq!(
+            *layer_1.weights.values,
+            [
+                -0.3544336,
+                -0.78365654,
+                0.6645522,
+                0.49479198,
+                0.50934315,
+                -0.092546165,
+                -0.42321765,
+                -0.46464965,
+                0.33785284,
+                0.5437852,
+                -0.88719916,
+                0.7682097
+            ]
+        )
     }
 }
