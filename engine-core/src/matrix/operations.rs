@@ -37,8 +37,8 @@ impl Matrix {
     }
 
     pub fn set(&mut self, row: usize, col: usize, value: f32) {
-        if row * self.cols + col > self.rows * self.cols {
-            return ();
+        if row >= self.rows || col >= self.cols {
+            return;
         }
 
         let mut_values = Rc::make_mut(&mut self.values);
@@ -144,6 +144,30 @@ impl Matrix {
         })
     }
 
+    pub fn multiply_scalar(&self, scalar: f32) -> Matrix {
+        let values: Vec<f32> = self.values.iter().map(|value| scalar * value).collect();
+
+        Matrix {
+            rows: self.rows,
+            cols: self.cols,
+            values: Rc::from(values.into_boxed_slice()),
+        }
+    }
+
+    pub fn row_sums(&self) -> Vec<f32> {
+        let mut result = Vec::with_capacity(self.rows);
+
+        for i in 0..self.rows {
+            let mut row = Vec::with_capacity(self.cols);
+            for j in 0..self.cols {
+                row.push(self.values[i * self.cols + j]);
+            }
+            result.push(row.iter().sum());
+        }
+
+        result
+    }
+
     pub fn traspose(&self) -> Matrix {
         let mut values: Vec<f32> = vec![0.0; self.values.len()];
 
@@ -172,10 +196,14 @@ impl Matrix {
             values: Rc::from(values.into_boxed_slice()),
         }
     }
-    pub fn map_with<F>(&self, other: &Matrix, mut f: F) -> Matrix
+    pub fn map_with<F>(&self, other: &Matrix, mut f: F) -> Result<Matrix, String>
     where
         F: FnMut(f32, f32) -> f32,
     {
+        if other.rows != self.rows || other.cols != self.cols {
+            return Err("Las dimensiones no coinciden".to_string());
+        }
+
         let values: Vec<f32> = self
             .values
             .iter()
@@ -183,11 +211,11 @@ impl Matrix {
             .map(|(self_val, other_val)| f(*self_val, *other_val))
             .collect();
 
-        Matrix {
+        Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
             values: Rc::from(values.into_boxed_slice()),
-        }
+        })
     }
 }
 
@@ -284,8 +312,17 @@ mod tests {
         }
     }
 
-    mod broadcasting {
+    mod broadcasting_and_scalar {
         use super::*;
+
+        #[test]
+        fn scalar_test() {
+            let matrix = Matrix::new(2, 2, vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+            let result = matrix.multiply_scalar(0.5);
+
+            assert_eq!(&*result.values, [0.5, 1.0, 1.5, 2.0].as_slice())
+        }
 
         #[test]
         fn test_broadcast_vec_success() {
@@ -340,5 +377,14 @@ mod tests {
         assert_eq!(trasposed.rows(), 3);
         assert_eq!(trasposed.cols(), 2);
         assert_eq!(&*trasposed.values, &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn test_row_sums() {
+        let matrix = Matrix::new(2, 2, vec![1.0, 2.0, 3.0, 4.0]).unwrap();
+
+        let result = matrix.row_sums();
+
+        assert_eq!(result, [3.0, 7.0].as_slice())
     }
 }

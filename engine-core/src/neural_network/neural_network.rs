@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use crate::*;
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 enum Activation {
     ReLu,
     Sigmoid,
@@ -57,42 +57,40 @@ impl Activation {
         }
     }
     // mat created es la matriz dada del forward pass != a la de 1 capa
-    fn derive(&self, post_activation: &Matrix, mat_created: &Matrix) -> Matrix {
+    fn derive(&self, post_activation: &Matrix, mat_created: &Matrix) -> Result<Matrix, String> {
         match self {
-            Activation::ReLu => {
-                post_activation.map_with(mat_created, |activated_value, created_val| {
+            Activation::ReLu => Ok(post_activation.map_with(
+                mat_created,
+                |activated_value, created_val| {
                     if activated_value > 0.0 {
                         created_val
                     } else {
                         0.0
                     }
-                })
-            }
+                },
+            )?),
             // Derivada: valor creado * valor de la matriz activada * (1.0 - y)
-            Activation::Sigmoid => {
-                post_activation.map_with(mat_created, |activated_value, created_val| {
+            Activation::Sigmoid => Ok(post_activation.map_with(
+                mat_created,
+                |activated_value, created_val| {
                     created_val * activated_value * (1.0 - activated_value)
-                })
-            }
+                },
+            )?),
             // Derivada: valor creado * (1.0 - (valor de la matriz activada)^2)
-            Activation::Tanh => post_activation
+            Activation::Tanh => Ok(post_activation
                 .map_with(mat_created, |activated_value, created_val| {
                     created_val * (1.0 - activated_value.powi(2))
-                }),
-            Activation::SoftMax => {
-                post_activation.map_with(mat_created, |activated_value, created_val| {
-                    created_val * activated_value * (1.0 - activated_value)
-                })
-            }
+                })?),
+            Activation::SoftMax => todo!(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Network {
     layers: Vec<Layer>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Layer {
     weights: Matrix,
     bias: Vec<f32>,
@@ -100,7 +98,7 @@ struct Layer {
 }
 
 impl Network {
-    pub fn forward(self, input: &Matrix) -> Result<(Matrix, Vec<LayerCache>), String> {
+    pub fn forward(&self, input: &Matrix) -> Result<(Matrix, Vec<LayerCache>), String> {
         let caches: Vec<LayerCache> = self
             .layers
             .iter()
@@ -128,6 +126,30 @@ impl Network {
 
         Ok((predictions, caches))
     }
+
+    pub fn backward(
+        &mut self,
+        caches: &[LayerCache],
+        expected: &Matrix,
+        loss: &dyn LossFn,
+        lr: f32,
+    ) -> Result<f32, String> {
+        if caches.is_empty() || caches.len() != self.layers.len() {
+            return Err("Número de caches no corresponde con el número de capas".to_string());
+        };
+
+        let predictions = &caches.last().unwrap().post_activation;
+
+        let loss_value = loss.get_loss(predictions, expected)?;
+
+        let mut grad = loss.derivative(predictions, expected)?;
+
+        for (layer, cache) in self.layers.iter_mut().zip(caches).rev() {
+            grad = layer.backward(cache, &grad, lr)?;
+        }
+
+        Ok(loss_value)
+    }
 }
 
 impl Layer {
@@ -140,6 +162,47 @@ impl Layer {
         let layer_cache = LayerCache::new(input.clone(), new_matrix, activated.clone());
 
         Ok((activated, layer_cache))
+    }
+
+    pub fn backward(
+        &mut self,
+        cache: &LayerCache,
+        grad_from_above: &Matrix,
+        lr: f32,
+    ) -> Result<Matrix, String> {
+        if self.activation == Activation::SoftMax {
+            return Err("Softmax aun no creado".to_string());
+        }
+
+        let delta = self
+            .activation
+            .derive(&cache.post_activation, grad_from_above)?;
+
+        // delta va de derecha a izquierda, entonces hay que trasponer la matriz que va de izquierda a derecha
+        let delta_weights = delta.multiply(&cache.input_matrix.traspose())?;
+
+        // Obtenemos los nuevos bias
+        let delta_bias = delta.row_sums();
+
+        // Obtenemos la matriz ya cambiada
+        let raw_prev = self.weights.traspose().multiply(&delta)?;
+
+        if self.bias.len() != delta_bias.len() {
+            return Err(
+                "Las dimensiones de la matriz delta no coincide con la original".to_string(),
+            );
+        }
+
+        // Actualizamos valores de los weights y los bias
+        self.bias = self
+            .bias
+            .iter()
+            .zip(&delta_bias)
+            .map(|(value, delta_value)| value - delta_value * lr)
+            .collect();
+        self.weights = self.weights.sub(&delta_weights.multiply_scalar(lr))?;
+
+        Ok(raw_prev)
     }
 }
 #[derive(Debug)]
@@ -166,6 +229,7 @@ struct LayerTopology {
 
 trait LossFn {
     fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String>;
+    fn derivative(&self, predicted: &Matrix, expected: &Matrix) -> Result<Matrix, String>;
 }
 
 struct MSELoss;
@@ -183,6 +247,16 @@ impl LossFn for MSELoss {
             .map(|(pred_val, expected_val)| (pred_val - expected_val).powi(2))
             .sum::<f32>()
             / (predicted.rows() as f32 * predicted.cols() as f32))
+    }
+
+    fn derivative(&self, predicted: &Matrix, expected: &Matrix) -> Result<Matrix, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        let size = (predicted.rows() * predicted.cols()) as f32;
+
+        Ok(predicted.sub(expected)?.multiply_scalar(2.0 / size))
     }
 }
 
@@ -217,7 +291,6 @@ mod test_activations_and_network {
         fn test_tanh() {
             let input = Matrix::new(1, 2, vec![0.0, 1.0]).unwrap();
             let activated = Activation::Tanh.apply(&input);
-
             // Tanh(0) = 0.0
             // Tanh(1) = 0.761594 mas o menos
             let res = &*activated.values;
@@ -341,6 +414,158 @@ mod test_activations_and_network {
             match loss {
                 Ok(_) => panic!(),
                 Err(err) => println!("Success!: {err}"),
+            }
+        }
+    }
+
+    mod backward {
+        use super::*;
+
+        fn single_neuron_net() -> Network {
+            Network {
+                layers: vec![Layer {
+                    weights: Matrix::new(1, 1, vec![2.0]).unwrap(),
+                    bias: vec![0.0],
+                    activation: Activation::ReLu,
+                }],
+            }
+        }
+
+        fn hidden_net() -> Network {
+            Network {
+                layers: vec![
+                    Layer {
+                        weights: Matrix::new(2, 2, vec![0.5, 0.3, 0.2, 0.4]).unwrap(),
+                        bias: vec![0.1, 0.1],
+                        activation: Activation::ReLu,
+                    },
+                    Layer {
+                        weights: Matrix::new(1, 2, vec![0.3, 0.6]).unwrap(),
+                        bias: vec![0.1],
+                        activation: Activation::ReLu,
+                    },
+                ],
+            }
+        }
+
+        fn loss_of(net: &Network, input: &Matrix, expected: &Matrix) -> f32 {
+            let (predicted, _) = net.forward(input).unwrap();
+            MSELoss.get_loss(&predicted, expected).unwrap()
+        }
+
+        #[test]
+        fn mse_derivative_matches_hand_computation() {
+            let predicted = Matrix::new(1, 2, vec![1.0, 2.0]).unwrap();
+            let expected = Matrix::new(1, 2, vec![0.0, 0.0]).unwrap();
+
+            let gradient = MSELoss.derivative(&predicted, &expected).unwrap();
+
+            assert_eq!(gradient.rows(), 1);
+            assert_eq!(gradient.cols(), 2);
+            assert_eq!(&*gradient.values, &[1.0, 2.0]);
+        }
+
+        #[test]
+        fn mse_derivative_rejects_incompatible_shapes() {
+            let predicted = Matrix::new(1, 2, vec![1.0, 2.0]).unwrap();
+            let expected = Matrix::new(2, 1, vec![0.0, 0.0]).unwrap();
+
+            assert!(MSELoss.derivative(&predicted, &expected).is_err());
+        }
+
+        #[test]
+        fn single_neuron_updates_weight_and_bias() {
+            let input = Matrix::new(1, 1, vec![1.0]).unwrap();
+            let expected = Matrix::new(1, 1, vec![3.0]).unwrap();
+            let mut net = single_neuron_net();
+
+            let (_, caches) = net.forward(&input).unwrap();
+            let loss = net.backward(&caches, &expected, &MSELoss, 0.1).unwrap();
+
+            // z = 2*1 + 0 = 2, a = relu(2) = 2, L = (2-3)^2 = 1
+            assert!((loss - 1.0).abs() < 1e-6, "loss antes del update: {loss}");
+
+            // delta = 2(a-y) = -2, dW = -2*1 = -2, db = -2
+            // w' = 2 - 0.1*(-2) = 2.2
+            // b' = 0 - 0.1*(-2) = 0.2
+            let weight = net.layers[0].weights.get(0, 0).unwrap();
+            assert!(
+                (weight - 2.2).abs() < 1e-5,
+                "peso esperado 2.2, obtenido {weight}"
+            );
+
+            let bias = net.layers[0].bias[0];
+            assert!(
+                (bias - 0.2).abs() < 1e-5,
+                "bias esperado 0.2, obtenido {bias}"
+            );
+
+            // z' = 2.2*1 + 0.2 = 2.4, L' = (2.4-3)^2 = 0.36
+            let loss_after = loss_of(&net, &input, &expected);
+            assert!(
+                loss_after < loss,
+                "la pérdida debe bajar: {loss} -> {loss_after}"
+            );
+        }
+
+        #[test]
+        fn softmax_backward_is_rejected() {
+            let mut net = Network {
+                layers: vec![Layer {
+                    weights: Matrix::new(1, 1, vec![1.0]).unwrap(),
+                    bias: vec![0.0],
+                    activation: Activation::SoftMax,
+                }],
+            };
+            let input = Matrix::new(1, 1, vec![1.0]).unwrap();
+            let expected = Matrix::new(1, 1, vec![1.0]).unwrap();
+
+            let (_, caches) = net.forward(&input).unwrap();
+
+            assert!(net.backward(&caches, &expected, &MSELoss, 0.1).is_err());
+        }
+
+        #[test]
+        fn gradient_check_weights() {
+            let input = Matrix::new(2, 1, vec![1.0, 2.0]).unwrap();
+            let expected = Matrix::new(1, 1, vec![1.0]).unwrap();
+            let net = hidden_net();
+
+            let (predicted, caches) = net.forward(&input).unwrap();
+            let initial_loss = MSELoss.get_loss(&predicted, &expected).unwrap();
+            assert!(
+                (initial_loss - 0.0144).abs() < 1e-6,
+                "pérdida inicial inesperada: {initial_loss}"
+            );
+
+            let eps = 1e-2;
+            let checks = [(0usize, 0usize, 0usize), (0, 1, 1), (1, 0, 0), (1, 0, 1)];
+
+            for (layer, row, col) in checks {
+                let original = net.layers[layer].weights.get(row, col).unwrap();
+
+                let mut plus = net.clone();
+                plus.layers[layer].weights.set(row, col, original + eps);
+                let loss_plus = loss_of(&plus, &input, &expected);
+
+                let mut minus = net.clone();
+                minus.layers[layer].weights.set(row, col, original - eps);
+                let loss_minus = loss_of(&minus, &input, &expected);
+
+                let numeric = (loss_plus - loss_minus) / (2.0 * eps);
+
+                // Con lr = 1 el paso aplicado es exactamente -dW
+                let mut trained = net.clone();
+                trained.backward(&caches, &expected, &MSELoss, 1.0).unwrap();
+                let analytic = original - trained.layers[layer].weights.get(row, col).unwrap();
+
+                let relative_error =
+                    (numeric - analytic).abs() / (numeric.abs() + analytic.abs()).max(1e-8);
+
+                assert!(
+                    relative_error < 1e-2,
+                    "capa {layer}, [{row},{col}]: numeric={numeric}, analytic={analytic}, error={relative_error}"
+                );
             }
         }
     }
