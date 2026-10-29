@@ -10,17 +10,12 @@ pub enum Initialization {
 }
 
 impl Initialization {
-    pub fn get_limits(&self, inputs: usize, outputs: usize) -> (f32, f32) {
-        match self {
-            Initialization::Xavier => {
-                let standart_deviation = (6.0 / (inputs + outputs) as f32).powf(0.5);
-                (-standart_deviation, standart_deviation)
-            }
-            Initialization::He => {
-                let standart_deviation = (2.0 / inputs as f32).powf(0.5);
-                (0.0, standart_deviation)
-            }
-        }
+    pub fn get_limits(&self, fan_in: usize, fan_out: usize) -> (f32, f32) {
+        let limit = match self {
+            Initialization::Xavier => (6.0 / (fan_in + fan_out) as f32).sqrt(),
+            Initialization::He => (6.0 / fan_in as f32).sqrt(),
+        };
+        (-limit, limit)
     }
 }
 
@@ -46,22 +41,22 @@ impl Matrix {
 
     pub fn from_random(
         rng: &mut dyn Rng,
-        input_size: usize,
-        output_size: usize,
+        rows: usize,
+        cols: usize,
         initialization: Initialization,
     ) -> Result<Matrix, String> {
-        if input_size == 0 || output_size == 0 {
+        if rows == 0 || cols == 0 {
             return Err(
                 "Dimensiones incorrectas al crear la matriz con weights aleatorias".to_string(),
             );
         }
 
-        let (bottom_limit, top_limit) = initialization.get_limits(input_size, output_size);
-        let values: Vec<f32> = (0..input_size * output_size)
+        let (bottom_limit, top_limit) = initialization.get_limits(cols, rows);
+        let values: Vec<f32> = (0..rows * cols)
             .map(|_| rng.random_range(bottom_limit..top_limit))
             .collect();
 
-        Matrix::new(input_size, output_size, values)
+        Matrix::new(rows, cols, values)
     }
 
     pub fn rows(&self) -> usize {
@@ -210,7 +205,7 @@ impl Matrix {
         result
     }
 
-    pub fn traspose(&self) -> Matrix {
+    pub fn transpose(&self) -> Matrix {
         let mut values: Vec<f32> = vec![0.0; self.values.len()];
 
         for i in 0..self.rows {
@@ -406,19 +401,19 @@ mod tests {
     }
 
     #[test]
-    fn test_traspose() {
+    fn test_transpose() {
         // Testeamos una matriz no cuadrada (2x3) para asegurar que intercambia filas y columnas correctamente
         let test_matrix = Matrix::new(2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
 
-        let trasposed = test_matrix.traspose();
+        let transposed = test_matrix.transpose();
 
         // Resultado esperado (3x2):
         // 1.0 | 4.0
         // 2.0 | 5.0
         // 3.0 | 6.0
-        assert_eq!(trasposed.rows(), 3);
-        assert_eq!(trasposed.cols(), 2);
-        assert_eq!(&*trasposed.values, &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        assert_eq!(transposed.rows(), 3);
+        assert_eq!(transposed.cols(), 2);
+        assert_eq!(&*transposed.values, &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
     }
 
     #[test]

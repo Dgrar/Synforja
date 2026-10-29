@@ -1,23 +1,21 @@
-use rand::{prelude::Rng, rng, SeedableRng};
+use rand::prelude::Rng;
+use serde::Serialize;
 use std::rc::Rc;
 
-use crate::*;
-#[derive(Debug, Clone, PartialEq)]
-enum Activation {
+use crate::{Initialization, Matrix};
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum Activation {
+    Linear,
     ReLu,
     Sigmoid,
     Tanh,
     SoftMax,
 }
 
-struct NetworkCharacteristics {
-    topology: Vec<LayerTopology>,
-    loss_fn: Box<dyn LossFn>,
-}
-
 impl Activation {
     fn apply(&self, input: &Matrix) -> Matrix {
         match self {
+            Activation::Linear => input.clone(),
             Activation::ReLu => input.map(|x| if x > 0.0 { x } else { 0.0 }),
             Activation::Sigmoid => input.map(|x| 1.0 / (1.0 + (-x).exp())),
             Activation::Tanh => input.map(|x| x.tanh()),
@@ -60,6 +58,7 @@ impl Activation {
     // mat created es la matriz dada del forward pass != a la de 1 capa
     fn derive(&self, post_activation: &Matrix, mat_created: &Matrix) -> Result<Matrix, String> {
         match self {
+            Activation::Linear => Ok(mat_created.clone()),
             Activation::ReLu => Ok(post_activation.map_with(
                 mat_created,
                 |activated_value, created_val| {
@@ -88,11 +87,12 @@ impl Activation {
 }
 
 #[derive(Debug, Clone)]
-struct Network {
+pub struct Network {
     layers: Vec<Layer>,
+    topology: Vec<LayerTopology>,
 }
 #[derive(Debug, Clone)]
-struct Layer {
+pub struct Layer {
     weights: Matrix,
     bias: Vec<f32>,
     activation: Activation,
@@ -100,6 +100,12 @@ struct Layer {
 
 impl Network {
     pub fn random(rng: &mut dyn Rng, topology: &[LayerTopology]) -> Result<Network, String> {
+        if topology.len() < 2 {
+            return Err(
+                "La topología necesita al menos una capa de entrada y una de salida".to_string(),
+            );
+        }
+
         let layers = topology
             .windows(2)
             .map(|layer_topology| {
@@ -111,7 +117,10 @@ impl Network {
             })
             .collect::<Result<Vec<Layer>, String>>()?;
 
-        Ok(Network { layers })
+        Ok(Network {
+            layers,
+            topology: topology.to_vec(),
+        })
     }
 
     pub fn forward(&self, input: &Matrix) -> Result<(Matrix, Vec<LayerCache>), String> {
@@ -157,6 +166,55 @@ impl Network {
         }
 
         Ok(loss_value)
+    }
+
+    pub fn train(
+        &mut self,
+        input: &[f32],
+        target: &[f32],
+        loss: &dyn LossFn,
+        lr: f32,
+    ) -> Result<f32, String> {
+        if self.layers[0].weights.cols() != input.len() {
+            return Err(
+                "El numero de valores del input no coincide con el numero de neuronas de la capa de entrada".to_string(),
+            );
+        }
+
+        let input_matrix = Matrix::new(input.len(), 1, input.to_vec())?;
+        let (result, caches) = self.forward(&input_matrix)?;
+
+        if result.rows() != target.len() {
+            return Err(
+                "El numero de valores del output no coincide con el numero de neuronas de la capa de salida".to_string(),
+            );
+        }
+
+        let target_matrix = Matrix::new(target.len(), 1, target.to_vec())?;
+
+        let error = self.backward(&caches, &target_matrix, loss, lr)?;
+
+        Ok(error)
+    }
+
+    pub fn to_layer_send_information(&self) -> NetworkSendInformation {
+        let weights: Vec<f32> = self
+            .layers
+            .iter()
+            .flat_map(|layer| layer.weights.values.to_vec())
+            .collect();
+
+        let biases: Vec<f32> = self
+            .layers
+            .iter()
+            .flat_map(|layer| layer.bias.clone())
+            .collect();
+
+        NetworkSendInformation {
+            weights,
+            biases,
+            topology: self.topology.clone(),
+        }
     }
 }
 
@@ -213,13 +271,13 @@ impl Layer {
             .derive(&cache.post_activation, grad_from_above)?;
 
         // delta va de derecha a izquierda, entonces hay que trasponer la matriz que va de izquierda a derecha
-        let delta_weights = delta.multiply(&cache.input_matrix.traspose())?;
+        let delta_weights = delta.multiply(&cache.input_matrix.transpose())?;
 
         // Obtenemos los nuevos bias
         let delta_bias = delta.row_sums();
 
         // Obtenemos la matriz ya cambiada
-        let raw_prev = self.weights.traspose().multiply(&delta)?;
+        let raw_prev = self.weights.transpose().multiply(&delta)?;
 
         if self.bias.len() != delta_bias.len() {
             return Err(
@@ -240,7 +298,7 @@ impl Layer {
     }
 }
 #[derive(Debug)]
-struct LayerCache {
+pub struct LayerCache {
     input_matrix: Matrix,
     pre_activation: Matrix,
     post_activation: Matrix,
@@ -256,18 +314,25 @@ impl LayerCache {
     }
 }
 
-#[derive(Debug, Clone)]
-struct LayerTopology {
-    size: usize,
-    activation: Activation,
+#[derive(Debug, Clone, Serialize)]
+pub struct LayerTopology {
+    pub size: usize,
+    pub activation: Activation,
 }
 
-trait LossFn {
+#[derive(Serialize, Debug)]
+pub struct NetworkSendInformation {
+    weights: Vec<f32>,
+    biases: Vec<f32>,
+    topology: Vec<LayerTopology>,
+}
+
+pub trait LossFn {
     fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String>;
     fn derivative(&self, predicted: &Matrix, expected: &Matrix) -> Result<Matrix, String>;
 }
 
-struct MSELoss;
+pub struct MSELoss;
 
 impl LossFn for MSELoss {
     fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String> {
@@ -298,6 +363,7 @@ impl LossFn for MSELoss {
 #[cfg(test)]
 mod test_activations_and_network {
     use super::*;
+    use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;
 
     mod activations {
@@ -367,7 +433,7 @@ mod test_activations_and_network {
             let input = Matrix::new(2, 1, vec![2.0, 1.0]).unwrap();
 
             let (activated, cache) = layer.forward(&input).unwrap();
-
+            println!("{:?}", activated);
             assert_eq!(&*activated.values, &[2.5, 1.0]);
 
             assert_eq!(&*cache.input_matrix.values, &[2.0, 1.0]);
@@ -381,14 +447,20 @@ mod test_activations_and_network {
 
         #[test]
         fn test_empty_network_error() {
-            let network = Network { layers: vec![] };
+            let network = Network {
+                layers: vec![],
+                topology: vec![LayerTopology {
+                    size: 1,
+                    activation: Activation::Linear,
+                }],
+            };
             let input = Matrix::new(2, 2, vec![1.0; 4]).unwrap();
 
             let result = network.forward(&input);
             assert!(result.is_err());
             assert_eq!(
                 result.unwrap_err(),
-                "Hubo un error al hacer el forward pass"
+                "Hubo un error al obtener las predicciones finales"
             );
         }
 
@@ -407,7 +479,13 @@ mod test_activations_and_network {
                     activation: Activation::ReLu,
                 },
             ];
-            let network = Network { layers };
+            let network = Network {
+                layers,
+                topology: vec![LayerTopology {
+                    size: 1,
+                    activation: Activation::Linear,
+                }],
+            };
             let input = Matrix::new(2, 2, vec![1.0; 4]).unwrap();
 
             let result = network.forward(&input);
@@ -464,6 +542,10 @@ mod test_activations_and_network {
                     bias: vec![0.0],
                     activation: Activation::ReLu,
                 }],
+                topology: vec![LayerTopology {
+                    size: 1,
+                    activation: Activation::Linear,
+                }],
             }
         }
 
@@ -481,6 +563,10 @@ mod test_activations_and_network {
                         activation: Activation::ReLu,
                     },
                 ],
+                topology: vec![LayerTopology {
+                    size: 1,
+                    activation: Activation::Linear,
+                }],
             }
         }
 
@@ -552,6 +638,10 @@ mod test_activations_and_network {
                     bias: vec![0.0],
                     activation: Activation::SoftMax,
                 }],
+                topology: vec![LayerTopology {
+                    size: 1,
+                    activation: Activation::Linear,
+                }],
             };
             let input = Matrix::new(1, 1, vec![1.0]).unwrap();
             let expected = Matrix::new(1, 1, vec![1.0]).unwrap();
@@ -606,7 +696,7 @@ mod test_activations_and_network {
         }
     }
     #[test]
-    fn test_network_random_initialization_with_chacha() {
+    fn test_network_random_initialization() {
         let seed = [42; 32];
         let mut rng = ChaCha8Rng::from_seed(seed);
 
