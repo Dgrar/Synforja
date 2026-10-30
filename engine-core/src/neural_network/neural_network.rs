@@ -1,14 +1,23 @@
 use rand::prelude::Rng;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::rc::Rc;
 
 use crate::{Initialization, Matrix};
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Activation {
+    #[serde(alias = "linear", alias = "linear")]
     Linear,
+    #[serde(alias = "ReLu", alias = "Relu", alias = "relu")]
     ReLu,
+    #[serde(alias = "Sigmoid", alias = "sigmoid")]
     Sigmoid,
     Tanh,
+    #[serde(
+        alias = "SoftMax",
+        alias = "softMax",
+        alias = "Softmax",
+        alias = "softmax"
+    )]
     SoftMax,
 }
 
@@ -314,7 +323,7 @@ impl LayerCache {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LayerTopology {
     pub size: usize,
     pub activation: Activation,
@@ -322,9 +331,9 @@ pub struct LayerTopology {
 
 #[derive(Serialize, Debug)]
 pub struct NetworkSendInformation {
-    weights: Vec<f32>,
-    biases: Vec<f32>,
-    topology: Vec<LayerTopology>,
+    pub weights: Vec<f32>,
+    pub biases: Vec<f32>,
+    pub topology: Vec<LayerTopology>,
 }
 
 pub trait LossFn {
