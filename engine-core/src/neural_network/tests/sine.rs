@@ -60,7 +60,7 @@ mod tests {
             let mut max_error: f32 = 0.0;
 
             for (input, target) in test.iter() {
-                let input_matrix = Matrix::new(input.len(), 1, input.to_vec()).unwrap();
+                let input_matrix = Matrix::from_slice(input.len(), 1, input).unwrap();
                 let (result, _) = model.forward(&input_matrix).unwrap();
                 let error = (result.get(0, 0).unwrap() - target[0]).abs();
                 max_error = max_error.max(error);

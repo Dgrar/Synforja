@@ -58,6 +58,16 @@ impl Matrix {
 
         Matrix::new(rows, cols, values)
     }
+    pub fn from_slice(rows: usize, cols: usize, values: &[f32]) -> Result<Matrix, String> {
+        if rows * cols != values.len() {
+            return Err("Numero de valores no es igual a las dimensiones de la matriz".to_string());
+        }
+        Ok(Self {
+            rows,
+            cols,
+            values: Rc::from(values),
+        })
+    }
 
     pub fn rows(&self) -> usize {
         self.rows
@@ -96,28 +106,48 @@ impl Matrix {
             return Err("Dimensiones incorrectas, las columnas de la primera matriz no coinciden con las filas de la segunda".to_string());
         }
 
-        // Para multiplicar, lo que puedo hacer es dividir el array en nº de filas partes, en la primera matriz sumar 1 y en la segunda sumar cols
+        // Asignamos las dimensiones de la matriz final
+        let out_rows = self.rows;
+        let out_cols = other_matrix.cols;
+        let inner_dim = self.cols;
 
-        let mut values = vec![0.0; self.rows * other_matrix.cols];
+        // Creamos el vector que almacenará los resultados
+        let mut values = vec![0.0; out_rows * out_cols];
 
-        for i in 0..self.rows {
-            // Recorre todas las filas
-            for j in 0..self.cols {
-                // Por cada fila, recorre la columna
-                let first_value = self.get_row(i).unwrap()[j]; // De la fila i, obtenemos el valor en la posicion j
-                for k in 0..other_matrix.cols {
-                    // Ahora pasamos en las columnas del otro
-                    // El valor en la fila i, posicion k
-                    values[i * other_matrix.cols + k] +=
-                    // Al primer valor se le multiplica el valor de la fila j, en posicion k
-                        first_value * other_matrix.values[j * other_matrix.cols + k]
+        // Obtenemos acceso directo a los arrays de los valores de las 2 matrices
+        let self_vals = &*self.values;
+        let other_vals = &*other_matrix.values;
+
+        // Pasamos por cada una de las filas de la primera matriz
+        for i in 0..out_rows {
+            let self_row_start = i * inner_dim;
+            let dest_row_start = i * out_cols;
+
+            // Pasamos por los elementos de la fila actual
+            for k in 0..inner_dim {
+                let a_val = self_vals[self_row_start + k];
+
+                // Si el valor del elemento que opera es 0 pasamos
+                if a_val == 0.0 {
+                    continue;
+                }
+
+                let other_row_start = k * out_cols;
+
+                // Delimitamos los segmentos de la fila destino y de la fila de la segunda matriz
+                let dest_slice = &mut values[dest_row_start..dest_row_start + out_cols];
+                let other_slice = &other_vals[other_row_start..other_row_start + out_cols];
+
+                // Multiplicamos el elemento por toda la fila correspondiente de la segunda matriz y lo acumulamos
+                for j in 0..out_cols {
+                    dest_slice[j] += a_val * other_slice[j];
                 }
             }
         }
 
         Ok(Matrix {
-            rows: self.rows,
-            cols: other_matrix.cols,
+            rows: out_rows,
+            cols: out_cols,
             values: Rc::from(values.into_boxed_slice()),
         })
     }
@@ -193,13 +223,14 @@ impl Matrix {
 
     pub fn row_sums(&self) -> Vec<f32> {
         let mut result = Vec::with_capacity(self.rows);
+        let self_vals = &*self.values;
 
         for i in 0..self.rows {
-            let mut row = Vec::with_capacity(self.cols);
-            for j in 0..self.cols {
-                row.push(self.values[i * self.cols + j]);
-            }
-            result.push(row.iter().sum());
+            let start = i * self.cols;
+            let end = start + self.cols;
+
+            let sum: f32 = self_vals[start..end].iter().sum();
+            result.push(sum);
         }
 
         result

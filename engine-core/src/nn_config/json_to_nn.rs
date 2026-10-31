@@ -1,4 +1,5 @@
 use crate::neural_network::neural_network::*;
+use crate::nn_config::csv_to_json::process_csv;
 use crate::Matrix;
 use rand::{rng, seq::SliceRandom, RngExt};
 use serde::{Deserialize, Serialize};
@@ -34,9 +35,17 @@ struct TrainingDataIn {
     expects: Vec<Vec<f32>>,
 }
 
+pub enum TrainingSource {
+    Json(String),
+    Csv {
+        content: String,
+        input_columns: usize,
+    },
+}
+
 pub fn create_and_train(
     model_data: String,
-    training_data_str: String,
+    source_data: TrainingSource,
 ) -> Result<TrainingOutcome, String> {
     // Deserializar configuración del modelo
     let config: NeuralNetworkIn = serde_json::from_str(&model_data)
@@ -52,10 +61,23 @@ pub fn create_and_train(
     let mut rng = rng();
     let mut model = Network::random(&mut rng, &topology)?;
 
-    // Deserializar datos de entrenamiento
-    let training_data: TrainingDataIn = serde_json::from_str(&training_data_str)
-        .map_err(|e| format!("Error al analizar los datos de entrenamiento: {}", e))?;
+    // RESOLUCIÓN DINÁMICA: Obtenemos el struct TrainingDataIn según el formato de origen
+    let training_data: TrainingDataIn = match source_data {
+        // Si ya viene en JSON, lo deserializamos directamente como antes
+        TrainingSource::Json(json_str) => serde_json::from_str(&json_str)
+            .map_err(|e| format!("Error al analizar los datos de entrenamiento JSON: {}", e))?,
 
+        // Si viene en CSV, llamamos a tu función, procesamos y mapeamos al struct interno
+        TrainingSource::Csv {
+            content,
+            input_columns,
+        } => {
+            let (inputs, expects) = process_csv(&content, input_columns)?;
+            TrainingDataIn { inputs, expects }
+        }
+    };
+
+    // A partir de aquí el código del bucle de entrenamiento se mantiene EXACTAMENTE igual
     if training_data.inputs.len() != training_data.expects.len() {
         return Err("Número de casos de entrada no coincide con los de salida".to_string());
     }
@@ -115,10 +137,10 @@ fn evaluate_test_loss(
     let mut max_error: f32 = 0.0;
 
     for (input, target) in data.iter() {
-        let input_matrix = Matrix::new(input.len(), 1, input.to_vec())?;
+        let input_matrix = Matrix::from_slice(input.len(), 1, input)?;
         let (result, _) = model.forward(&input_matrix)?;
 
-        let expected_matrix = Matrix::new(target.len(), 1, target.to_vec())?;
+        let expected_matrix = Matrix::from_slice(target.len(), 1, target)?;
         let error: f32 = loss_fn.get_loss(&result, &expected_matrix)?;
 
         max_error = max_error.max(error);
@@ -132,7 +154,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_and_train_xor() {
+    fn test_create_and_train_xor_json() {
         // El json que pasara el backend a rust:
         let model_config_json = r#"{
             "layers": [
@@ -164,10 +186,10 @@ mod tests {
         }"#
         .to_string();
 
-        // Ejecutamos función principal
-        let result = create_and_train(model_config_json, training_data_json);
+        let source = TrainingSource::Json(training_data_json);
 
-        // Comprobamos
+        let result = create_and_train(model_config_json, source);
+
         assert!(
             result.is_ok(),
             "El entrenamiento falló con el error: {:?}",
@@ -176,11 +198,60 @@ mod tests {
 
         let outcome = result.unwrap();
 
-        println!("Test exitoso. Pérdida final obtenida: {}", outcome.mse_loss);
+        println!(
+            "Test JSON exitoso. Pérdida final obtenida: {}",
+            outcome.mse_loss
+        );
 
         assert!(
             !outcome.network.topology.is_empty(),
             "La red neuronal devuelta no tiene capas"
+        );
+    }
+
+    #[test]
+    fn test_create_and_train_xor_csv() {
+        let model_config_json = r#"{
+            "layers": [
+                { "size": 2, "activation": "Linear" },
+                { "size": 4, "activation": "Tanh" },
+                { "size": 1, "activation": "Tanh" }
+            ],
+            "loss_fn": "mse_loss",
+            "lr": 0.1,
+            "epochs": 500,
+            "training_split": 1.0
+        }"#
+        .to_string();
+
+        let csv_content = r#"x1,x2,y
+            0.0,0.0,0.0
+            0.0,1.0,1.0
+            1.0,0.0,1.0
+            1.0,1.0,0.0
+            0.0,0.0,0.0
+            0.0,1.0,1.0
+            1.0,0.0,1.0
+            1.0,1.0,0.0"#
+            .to_string();
+
+        let source = TrainingSource::Csv {
+            content: csv_content,
+            input_columns: 2,
+        };
+
+        let result = create_and_train(model_config_json, source);
+
+        assert!(
+            result.is_ok(),
+            "El entrenamiento con CSV falló con el error: {:?}",
+            result.err()
+        );
+
+        let outcome = result.unwrap();
+        println!(
+            "Test CSV exitoso. Pérdida final obtenida: {}",
+            outcome.mse_loss
         );
     }
 
@@ -203,7 +274,9 @@ mod tests {
         }"#
         .to_string();
 
-        let result = create_and_train(model_config_json, training_data_json);
+        let source = TrainingSource::Json(training_data_json);
+
+        let result = create_and_train(model_config_json, source);
 
         assert!(result.is_err());
         assert_eq!(

@@ -190,7 +190,7 @@ impl Network {
             );
         }
 
-        let input_matrix = Matrix::new(input.len(), 1, input.to_vec())?;
+        let input_matrix = Matrix::from_slice(input.len(), 1, input)?;
         let (result, caches) = self.forward(&input_matrix)?;
 
         if result.rows() != target.len() {
@@ -199,7 +199,7 @@ impl Network {
             );
         }
 
-        let target_matrix = Matrix::new(target.len(), 1, target.to_vec())?;
+        let target_matrix = Matrix::from_slice(target.len(), 1, target)?;
 
         let error = self.backward(&caches, &target_matrix, loss, lr)?;
 

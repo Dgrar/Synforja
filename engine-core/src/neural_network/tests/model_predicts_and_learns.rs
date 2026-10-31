@@ -71,7 +71,7 @@ mod tests {
 
             for (input, target) in &dataset {
                 // Replicamos la misma lógica matricial de entrada que usa tu función `train`
-                let input_matrix = Matrix::new(input.len(), 1, input.to_vec()).unwrap();
+                let input_matrix = Matrix::from_slice(input.len(), 1, input).unwrap();
                 let (result_matrix, _) = model.forward(&input_matrix).unwrap();
 
                 let prediction = result_matrix
