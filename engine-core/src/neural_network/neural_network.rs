@@ -96,6 +96,35 @@ impl Activation {
 }
 
 #[derive(Debug, Clone)]
+pub struct LayerGradients {
+    pub weights: Matrix,
+    pub bias: Vec<f32>,
+}
+
+impl LayerGradients {
+    pub fn add_other_gradient(&mut self, other: &LayerGradients) -> Result<(), String> {
+        if self.bias.len() != other.bias.len() {
+            return Err("Dimensiones del bias incompatibles".to_string());
+        }
+
+        self.weights = self.weights.sum(&other.weights)?;
+
+        for (acc, value) in self.bias.iter_mut().zip(&other.bias) {
+            *acc += *value;
+        }
+
+        Ok(())
+    }
+
+    pub fn scale(&mut self, factor: f32) {
+        self.weights.multiply_scalar(factor);
+        for value in self.bias.iter_mut() {
+            *value *= factor
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Network {
     layers: Vec<Layer>,
     topology: Vec<LayerTopology>,
@@ -154,12 +183,11 @@ impl Network {
     }
 
     pub fn backward(
-        &mut self,
+        &self,
         caches: &[LayerCache],
         expected: &Matrix,
         loss: &dyn LossFn,
-        lr: f32,
-    ) -> Result<f32, String> {
+    ) -> Result<(f32, Vec<LayerGradients>), String> {
         if caches.is_empty() || caches.len() != self.layers.len() {
             return Err("Número de caches no corresponde con el número de capas".to_string());
         };
@@ -170,20 +198,36 @@ impl Network {
 
         let mut grad = loss.derivative(predictions, expected)?;
 
-        for (layer, cache) in self.layers.iter_mut().zip(caches).rev() {
-            grad = layer.backward(cache, &grad, lr)?;
+        let mut gradients = Vec::with_capacity(self.layers.len());
+
+        for (layer, cache) in self.layers.iter().zip(caches).rev() {
+            let (grad_input, layer_gradients) = layer.backward(cache, &grad)?;
+            grad = grad_input;
+            gradients.push(layer_gradients);
         }
 
-        Ok(loss_value)
+        gradients.reverse();
+
+        Ok((loss_value, gradients))
     }
 
-    pub fn train(
-        &mut self,
+    pub fn apply_gradients(&mut self, gradients: &[LayerGradients], lr: f32) -> Result<(), String> {
+        if gradients.len() != self.layers.len() {
+            return Err("El número de gradientes no coincide con el número de capas".to_string());
+        }
+
+        for (layer, layer_gradients) in self.layers.iter_mut().zip(gradients) {
+            layer.apply_gradients(layer_gradients, lr)?;
+        }
+        Ok(())
+    }
+
+    pub fn compute_gradients(
+        &self,
         input: &[f32],
         target: &[f32],
         loss: &dyn LossFn,
-        lr: f32,
-    ) -> Result<f32, String> {
+    ) -> Result<(f32, Vec<LayerGradients>), String> {
         if self.layers[0].weights.cols() != input.len() {
             return Err(
                 "El numero de valores del input no coincide con el numero de neuronas de la capa de entrada".to_string(),
@@ -201,8 +245,20 @@ impl Network {
 
         let target_matrix = Matrix::from_slice(target.len(), 1, target)?;
 
-        let error = self.backward(&caches, &target_matrix, loss, lr)?;
+        let (error, gradients) = self.backward(&caches, &target_matrix, loss)?;
 
+        Ok((error, gradients))
+    }
+
+    pub fn train(
+        &mut self,
+        input: &[f32],
+        target: &[f32],
+        loss: &dyn LossFn,
+        lr: f32,
+    ) -> Result<f32, String> {
+        let (error, gradients) = self.compute_gradients(input, target, loss)?;
+        self.apply_gradients(&gradients, lr)?;
         Ok(error)
     }
 
@@ -266,11 +322,10 @@ impl Layer {
     }
 
     pub fn backward(
-        &mut self,
+        &self,
         cache: &LayerCache,
         grad_from_above: &Matrix,
-        lr: f32,
-    ) -> Result<Matrix, String> {
+    ) -> Result<(Matrix, LayerGradients), String> {
         if self.activation == Activation::SoftMax {
             return Err("Softmax aun no creado".to_string());
         }
@@ -286,7 +341,7 @@ impl Layer {
         let delta_bias = delta.row_sums();
 
         // Obtenemos la matriz ya cambiada
-        let raw_prev = self.weights.transpose().multiply(&delta)?;
+        let grad_input = self.weights.transpose().multiply(&delta)?;
 
         if self.bias.len() != delta_bias.len() {
             return Err(
@@ -294,16 +349,30 @@ impl Layer {
             );
         }
 
+        Ok((
+            grad_input,
+            LayerGradients {
+                weights: delta_weights,
+                bias: delta_bias,
+            },
+        ))
+    }
+
+    pub fn apply_gradients(&mut self, gradients: &LayerGradients, lr: f32) -> Result<(), String> {
+        if self.bias.len() != gradients.bias.len() {
+            return Err("Dimensiones del bias incompatibles".to_string());
+        }
+
         // Actualizamos valores de los weights y los bias
         self.bias = self
             .bias
             .iter()
-            .zip(&delta_bias)
+            .zip(&gradients.bias)
             .map(|(value, delta_value)| value - delta_value * lr)
             .collect();
-        self.weights = self.weights.sub(&delta_weights.multiply_scalar(lr))?;
+        self.weights = self.weights.sub(&gradients.weights.multiply_scalar(lr))?;
 
-        Ok(raw_prev)
+        Ok(())
     }
 }
 #[derive(Debug)]
@@ -611,7 +680,7 @@ mod test_activations_and_network {
             let mut net = single_neuron_net();
 
             let (_, caches) = net.forward(&input).unwrap();
-            let loss = net.backward(&caches, &expected, &MSELoss, 0.1).unwrap();
+            let (loss, _) = net.backward(&caches, &expected, &MSELoss).unwrap();
 
             // z = 2*1 + 0 = 2, a = relu(2) = 2, L = (2-3)^2 = 1
             assert!((loss - 1.0).abs() < 1e-6, "loss antes del update: {loss}");
@@ -657,7 +726,7 @@ mod test_activations_and_network {
 
             let (_, caches) = net.forward(&input).unwrap();
 
-            assert!(net.backward(&caches, &expected, &MSELoss, 0.1).is_err());
+            assert!(net.backward(&caches, &expected, &MSELoss,).is_err());
         }
 
         #[test]
@@ -691,7 +760,8 @@ mod test_activations_and_network {
 
                 // Con lr = 1 el paso aplicado es exactamente -dW
                 let mut trained = net.clone();
-                trained.backward(&caches, &expected, &MSELoss, 1.0).unwrap();
+                let (error, gradients) = trained.backward(&caches, &expected, &MSELoss).unwrap();
+                trained.apply_gradients(&gradients, 1.0);
                 let analytic = original - trained.layers[layer].weights.get(row, col).unwrap();
 
                 let relative_error =

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.15,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "synforja-engine"
+version = "0.1.0"
+description = "Motor numérico de Synforja (MLP en Rust expuesto a Python)"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.maturin]
+manifest-path = "engine-core/Cargo.toml"
+python-source = "python"
+module-name = "engine_core._engine"
+features = ["pyo3/extension-module"]
+strip = true

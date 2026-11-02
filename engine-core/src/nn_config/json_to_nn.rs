@@ -1,6 +1,7 @@
 use crate::neural_network::neural_network::*;
 use crate::nn_config::csv_to_json::process_csv;
 use crate::Matrix;
+use pyo3::{exceptions::PyValueError, prelude::*};
 use rand::{rng, seq::SliceRandom, RngExt};
 use serde::{Deserialize, Serialize};
 
@@ -147,6 +148,40 @@ fn evaluate_test_loss(
     }
 
     Ok(max_error)
+}
+
+#[pyfunction]
+pub fn train_json(model_data: String, training_data: String) -> PyResult<String> {
+    let outcome = create_and_train(model_data, TrainingSource::Json(training_data))
+        .map_err(PyValueError::new_err)?;
+
+    serde_json::to_string(&outcome).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
+#[pyfunction]
+pub fn train_csv(
+    model_data: String,
+    csv_content: String,
+    input_columns: usize,
+) -> PyResult<String> {
+    let outcome = create_and_train(
+        model_data,
+        TrainingSource::Csv {
+            content: csv_content,
+            input_columns,
+        },
+    )
+    .map_err(PyValueError::new_err)?;
+
+    serde_json::to_string(&outcome).map_err(|err| PyValueError::new_err(err.to_string()))
+}
+
+#[pyfunction]
+pub fn parse_csv(
+    csv_content: &str,
+    input_columns: usize,
+) -> PyResult<(Vec<Vec<f32>>, Vec<Vec<f32>>)> {
+    process_csv(csv_content, input_columns).map_err(PyValueError::new_err)
 }
 
 #[cfg(test)]

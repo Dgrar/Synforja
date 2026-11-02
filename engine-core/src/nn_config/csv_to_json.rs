@@ -1,10 +1,9 @@
 use crate::*;
 use csv::ReaderBuilder;
 
-pub fn process_csv(
-    content: &str,
-    input_columns: usize,
-) -> Result<(Vec<Vec<f32>>, Vec<Vec<f32>>), String> {
+type CsvOut = Result<(Vec<Vec<f32>>, Vec<Vec<f32>>), String>;
+
+pub fn process_csv(content: &str, input_columns: usize) -> CsvOut {
     let mut file = ReaderBuilder::new()
         .has_headers(true)
         .from_reader(content.as_bytes());

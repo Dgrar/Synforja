@@ -1,5 +1,16 @@
-mod matrix;
-mod neural_network;
-mod nn_config;
+pub mod matrix;
+pub mod neural_network;
+pub mod nn_config;
 
-use matrix::operations::{Initialization, Matrix};
+pub use matrix::operations::{Initialization, Matrix};
+
+use pyo3::prelude::*;
+use pyo3::types::PyModule;
+
+#[pymodule]
+fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(nn_config::json_to_nn::train_json, m)?)?;
+    m.add_function(wrap_pyfunction!(nn_config::json_to_nn::train_csv, m)?)?;
+    m.add_function(wrap_pyfunction!(nn_config::json_to_nn::parse_csv, m)?)?;
+    Ok(())
+}
