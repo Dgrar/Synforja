@@ -49,7 +49,6 @@ mod tests {
                 let mut epoch_loss = 0.0;
 
                 for (input, target) in &dataset {
-                    // Entrenamos con todas las muestras del dataset
                     let loss_val = model
                         .train(input, target, &loss_fn, lr)
                         .expect("Error matemático o de dimensiones durante el entrenamiento");
@@ -65,12 +64,10 @@ mod tests {
                 }
             }
 
-            // FASE DE VERIFICACIÓN
             println!("\n--- Verificación de Predicciones XOR ---");
             let epsilon = 0.15;
 
             for (input, target) in &dataset {
-                // Replicamos la misma lógica matricial de entrada que usa tu función `train`
                 let input_matrix = Matrix::from_slice(input.len(), 1, input).unwrap();
                 let (result_matrix, _) = model.forward(&input_matrix).unwrap();
 

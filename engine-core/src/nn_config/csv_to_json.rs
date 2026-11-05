@@ -1,15 +1,14 @@
 use crate::*;
 use csv::ReaderBuilder;
 
-type CsvOut = Result<(Vec<Vec<f32>>, Vec<Vec<f32>>), String>;
+type CsvOut = Result<Vec<(Vec<f32>, Vec<f32>)>, String>;
 
 pub fn process_csv(content: &str, input_columns: usize) -> CsvOut {
     let mut file = ReaderBuilder::new()
         .has_headers(true)
         .from_reader(content.as_bytes());
 
-    let mut inputs = Vec::new();
-    let mut outputs = Vec::new();
+    let mut values = Vec::new();
 
     for result in file.records() {
         let record = result.map_err(|err| format!("Error en el csv: {}", err))?;
@@ -30,11 +29,10 @@ pub fn process_csv(content: &str, input_columns: usize) -> CsvOut {
         let output = row.split_off(input_columns);
         let input = row;
 
-        inputs.push(input);
-        outputs.push(output);
+        values.push((input, output));
     }
 
-    Ok((inputs, outputs))
+    Ok(values)
 }
 
 #[cfg(test)]
@@ -50,16 +48,17 @@ mod tests {
 
         assert!(result.is_ok(), "El procesamiento del CSV falló");
 
-        let (inputs, outputs) = result.unwrap();
+        let values = result.unwrap();
 
-        assert_eq!(inputs.len(), 2, "Debería haber 2 muestras de entrada");
-        assert_eq!(outputs.len(), 2, "Debería haber 2 muestras de salida");
+        assert_eq!(values.len(), 2, "Debería haber 2 muestras");
+        assert_eq!(values[0].0.len(), 2, "Debería haber 2 valores de entrada");
+        assert_eq!(values[0].1.len(), 1, "Debería haber 1 valor de salida");
 
-        assert_eq!(inputs[0], vec![0.5, 1.5]);
-        assert_eq!(outputs[0], vec![2.0]);
+        assert_eq!(values[0].0, vec![0.5, 1.5]);
+        assert_eq!(values[0].1, vec![2.0]);
 
-        assert_eq!(inputs[1], vec![-1.0, 0.0]);
-        assert_eq!(outputs[1], vec![1.0]);
+        assert_eq!(values[1].0, vec![-1.0, 0.0]);
+        assert_eq!(values[1].1, vec![1.0]);
     }
 
     #[test]

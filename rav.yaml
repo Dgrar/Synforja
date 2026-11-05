@@ -1,0 +1,14 @@
+name: Synforja
+version: "1.0.0"
+scripts:
+  be_start: cd backend && py manage.py runserver
+  be_migrate: cd backend && py manage.py migrate
+  be_make_migrations: cd backend && py manage.py makemigrations
+
+  fe_start: cd frontend && npm run dev
+  fe_install: cd frontend && npm install
+
+  dev: 
+    - rav run be_start
+    - rav run fe_start
+  

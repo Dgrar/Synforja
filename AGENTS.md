@@ -37,7 +37,7 @@ El humano debe **entender cada concepto NO-frontend** que se implemente. No se a
 | Validación | Pydantic v2 | 2.14.1 |
 | Motor numérico | Rust (crate `engine-core`) | edition 2021 |
 | Precisión numérica | `f32` (fijo) | — |
-| Puente Python↔Rust | PyO3 + maturin | pyo3 0.30.1 · maturin 1.15.0 |
+| Puente Python↔Rust | PyO3 + maturin | pyo3 0.30.1 · maturin >=1.15,<2.0 (probado 1.16.0) |
 | Errores Rust | thiserror | 2.0.1 |
 | Runtime Python | CPython | 3.14.4 (`.venv/`) |
 | Entorno | Windows / PowerShell | — |
@@ -50,16 +50,19 @@ Estado **actual**:
 Synforja/
 ├── AGENTS.md            # este documento
 ├── .venv/               # Python 3.14 + Django, Ninja, Pydantic, maturin
-└── engine-core/         # crate Rust (pyo3 + thiserror)
-    ├── Cargo.toml
-    └── src/{lib.rs,main.rs}
+├── engine-core/         # crate Rust (pyo3 + thiserror)
+│   ├── Cargo.toml
+│   └── src/lib.rs
+├── python/engine_core/  # wrapper Python + _engine.pyd (maturin mixed)
+└── pyproject.toml       # build maturin
 ```
-Estructura **objetivo** (a crear):
+Estructura **objetivo**:
 ```
 backend/        # proyecto Django + app api/ con routers Ninja
 frontend/       # Next.js
 engine-core/    # Rust: núcleo numérico (cdylib para Python)
-pyproject.toml  # build maturin (pendiente, ver §14)
+python/         # paquete Python del motor (engine_core)
+pyproject.toml  # build maturin
 ```
 
 ## 6. Arquitectura y fronteras
@@ -111,8 +114,10 @@ Responsabilidad única: **matemática numérica de la red**.
 - Errores Rust → excepciones Python con mensaje claro.
 - **Verificado**: PyO3 0.30.1 compila contra CPython 3.14.4 GIL-enabled; ABI
   version-specific `cp314-win_amd64`, **sin `abi3`**. `cargo build` OK.
-- `maturin develop` exige `[lib] crate-type = ["cdylib"]` y `pyproject.toml` (pendiente, F0).
-- `main.rs` se elimina en F0 (§14.4).
+- **Verificado**: `maturin develop` (1.16.0) instala `synforja-engine` editable y genera
+  `python/engine_core/_engine.cp314-win_amd64.pyd`. `import engine_core` expone
+  `train_json`, `train_csv` y `parse_csv`; XOR entrenado desde Python predice correctamente.
+- `main.rs` eliminado (§14.4).
 
 ## 11. Comandos de trabajo (PowerShell)
 ```powershell
@@ -120,17 +125,20 @@ Responsabilidad única: **matemática numérica de la red**.
 cargo build                    # workdir: engine-core
 cargo test                     # workdir: engine-core
 
-# Compilar/instalar la extensión en el venv
-.venv\Scripts\activate.ps1
-maturin develop                # requiere pyproject.toml (§14)
+# Compilar/instalar la extensión en el venv (desde la raíz del repo)
+cmd /c ".venv\Scripts\maturin.exe develop"            # debug
+cmd /c ".venv\Scripts\maturin.exe develop --release"  # release
 
-# Backend (cuando exista backend/)
+# Backend (workdir: backend, cuando exista)
 python manage.py migrate
 python manage.py runserver
 ```
 
+> En PowerShell, invocar `maturin.exe` directamente puede colgarse; usar `cmd /c` (verificado).
+
 ## 12. Roadmap por fases (cada una con checkpoint de aprendizaje)
 1. **F0 — Cimientos**: scaffold Django + Ninja, `pyproject.toml`/maturin, "hola mundo" Rust→Python.
+   *Puente Python↔Rust hecho; falta el scaffold Django.*
 2. **F1 — Álgebra en Rust**: `Matrix`, `matmul`, activaciones y sus derivadas + tests.
 3. **F2 — Forward**: capa→red, `forward` completo, ejemplo numérico verificado a mano.
 4. **F3 — Backprop**: pérdida, regla de la cadena, `backward`, chequeo por gradiente finito.
@@ -161,6 +169,9 @@ Registro de decisiones. Según §15 no se cambian en silencio: se actualizan aqu
     CPython 3.14.4 GIL-enabled → `target_abi=CPython-gil_enabled-3.14`,
     `SOABI=cp314-win_amd64`. **No se usa `abi3`** (solo hace falta si se distribuyen
     wheels a varias versiones de Python). Rust 1.98.1 ≥ MSRV 1.85.
+11. Puente Python verificado: `maturin develop` (1.16.0) instala `synforja-engine`
+    editable; `import engine_core` expone `train_json`, `train_csv`, `parse_csv`.
+    El backend Django vivirá en `backend/` (raíz) e importará `engine_core` del `.venv`.
 
 **Abiertas:**
 - Ninguna bloqueante. Las nuevas dudas se añaden aquí antes de decidir.

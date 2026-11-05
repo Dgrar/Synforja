@@ -438,6 +438,192 @@ impl LossFn for MSELoss {
     }
 }
 
+pub struct BCELoss;
+
+impl LossFn for BCELoss {
+    fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        let size = (predicted.rows() * predicted.cols()) as f32;
+        let epsilon = 1e-7_f32;
+
+        let loss = predicted
+            .values
+            .iter()
+            .zip(&*expected.values)
+            .map(|(pred_val, expected_val)| {
+                let probability = pred_val.clamp(epsilon, 1.0 - epsilon);
+                -(expected_val * probability.ln() + (1.0 - expected_val) * (1.0 - probability).ln())
+            })
+            .sum::<f32>();
+
+        Ok(loss / size)
+    }
+
+    fn derivative(&self, predicted: &Matrix, expected: &Matrix) -> Result<Matrix, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        let size = (predicted.rows() * predicted.cols()) as f32;
+        let epsilon = 1e-7_f32;
+
+        let values = predicted
+            .values
+            .iter()
+            .zip(&*expected.values)
+            .map(|(pred_val, expected_val)| {
+                let probability = pred_val.clamp(epsilon, 1.0 - epsilon);
+                (probability - expected_val) / (probability * (1.0 - probability) * size)
+            })
+            .collect();
+
+        Matrix::new(predicted.rows(), predicted.cols(), values)
+    }
+}
+
+pub struct MAELoss;
+
+impl LossFn for MAELoss {
+    fn get_loss(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        Ok(predicted
+            .values
+            .iter()
+            .zip(&*expected.values)
+            .map(|(pred_val, expected_val)| (pred_val - expected_val).abs())
+            .sum::<f32>()
+            / (predicted.rows() as f32 * predicted.cols() as f32))
+    }
+    fn derivative(&self, predicted: &Matrix, expected: &Matrix) -> Result<Matrix, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        let size = (predicted.rows() * predicted.cols()) as f32;
+        let values: Vec<f32> = predicted
+            .values
+            .iter()
+            .zip(&*expected.values)
+            .map(|(pred_val, expected_val)| {
+                let error = pred_val - expected_val;
+                if error > 0.0 {
+                    1.0 / size
+                } else if error < 0.0 {
+                    -1.0 / size
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+
+        Matrix::new(predicted.rows(), predicted.cols(), values)
+    }
+}
+
+pub trait MetricFn {
+    fn calculate(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String>;
+}
+
+pub struct RSquare;
+
+impl MetricFn for RSquare {
+    fn calculate(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        if expected.values.is_empty() {
+            return Err("Las matrices no pueden estar vacías".to_string());
+        }
+
+        let sum_expected: f32 = expected.values.iter().sum();
+        let mean_expected = sum_expected / expected.values.len() as f32;
+
+        let mut ss_res = 0.0;
+        let mut ss_tot = 0.0;
+
+        for (pred_val, expected_val) in (*predicted.values).iter().zip(&*expected.values) {
+            let res = expected_val - pred_val;
+            ss_res += res * res;
+
+            let diff_mean = expected_val - mean_expected;
+            ss_tot += diff_mean * diff_mean;
+        }
+
+        if ss_tot == 0.0 {
+            if ss_res == 0.0 {
+                return Ok(1.0);
+            } else {
+                return Ok(0.0);
+            }
+        }
+
+        // 4. Calcular R²
+        Ok(1.0 - (ss_res / ss_tot))
+    }
+}
+
+pub struct Accuracy;
+
+impl MetricFn for Accuracy {
+    fn calculate(&self, predicted: &Matrix, expected: &Matrix) -> Result<f32, String> {
+        if predicted.cols() != expected.cols() || predicted.rows() != expected.rows() {
+            return Err("Dimensiones incorrectas".to_string());
+        }
+
+        if expected.values.is_empty() {
+            return Err("Las matrices no pueden estar vacías".to_string());
+        }
+
+        let total_samples = predicted.rows();
+        let total_columns = predicted.cols();
+        let mut total_correct_predictions = 0;
+
+        if total_columns == 1 {
+            //Clasificación Binaria (Entre 2 cosas)
+            for (pred_val, expected_val) in (*predicted.values).iter().zip(&*expected.values) {
+                let predicted_binary_class = if *pred_val >= 0.5 { 1.0 } else { 0.0 };
+                if predicted_binary_class == *expected_val {
+                    total_correct_predictions += 1;
+                }
+            }
+        } else {
+            // Clasificación Multiclase (Entre más de 2 cosas)
+            for sample_index in 0..total_samples {
+                let start_index = sample_index * total_columns;
+                let end_index = start_index * total_columns;
+
+                let row_predicted_probabilities = &predicted.values[start_index..end_index];
+                let row_expected = &expected.values[start_index..end_index];
+
+                let (predicted_class_argmax_index, _) = row_predicted_probabilities
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .unwrap();
+
+                let (expected_class_argmax_index, _) = row_expected
+                    .iter()
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .unwrap();
+
+                if predicted_class_argmax_index == expected_class_argmax_index {
+                    total_correct_predictions += 1;
+                }
+            }
+        }
+
+        Ok(total_correct_predictions as f32 / total_samples as f32)
+    }
+}
+
 #[cfg(test)]
 mod test_activations_and_network {
     use super::*;
@@ -680,7 +866,8 @@ mod test_activations_and_network {
             let mut net = single_neuron_net();
 
             let (_, caches) = net.forward(&input).unwrap();
-            let (loss, _) = net.backward(&caches, &expected, &MSELoss).unwrap();
+            let (loss, gradients) = net.backward(&caches, &expected, &MSELoss).unwrap();
+            net.apply_gradients(&gradients, 0.1).unwrap();
 
             // z = 2*1 + 0 = 2, a = relu(2) = 2, L = (2-3)^2 = 1
             assert!((loss - 1.0).abs() < 1e-6, "loss antes del update: {loss}");
@@ -760,8 +947,8 @@ mod test_activations_and_network {
 
                 // Con lr = 1 el paso aplicado es exactamente -dW
                 let mut trained = net.clone();
-                let (error, gradients) = trained.backward(&caches, &expected, &MSELoss).unwrap();
-                trained.apply_gradients(&gradients, 1.0);
+                let (_, gradients) = trained.backward(&caches, &expected, &MSELoss).unwrap();
+                trained.apply_gradients(&gradients, 1.0).unwrap();
                 let analytic = original - trained.layers[layer].weights.get(row, col).unwrap();
 
                 let relative_error =
@@ -878,5 +1065,88 @@ mod test_activations_and_network {
                 0.7682097
             ]
         )
+    }
+}
+
+#[cfg(test)]
+mod bce_loss_tests {
+    use super::*;
+
+    fn loss_at(probability: f32, target: f32) -> f32 {
+        BCELoss
+            .get_loss(
+                &Matrix::new(1, 1, vec![probability]).unwrap(),
+                &Matrix::new(1, 1, vec![target]).unwrap(),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn bce_loss_matches_hand_computation() {
+        let loss = BCELoss
+            .get_loss(
+                &Matrix::new(1, 2, vec![0.5, 0.5]).unwrap(),
+                &Matrix::new(1, 2, vec![1.0, 0.0]).unwrap(),
+            )
+            .unwrap();
+
+        assert!((loss - std::f32::consts::LN_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bce_derivative_matches_finite_difference() {
+        let epsilon = 1e-3;
+
+        for &probability in &[0.2_f32, 0.4, 0.6, 0.8] {
+            for &target in &[0.0_f32, 1.0] {
+                let predicted = Matrix::new(1, 1, vec![probability]).unwrap();
+                let expected = Matrix::new(1, 1, vec![target]).unwrap();
+
+                let analytic = BCELoss
+                    .derivative(&predicted, &expected)
+                    .unwrap()
+                    .get(0, 0)
+                    .unwrap();
+
+                let numeric = (loss_at(probability + epsilon, target)
+                    - loss_at(probability - epsilon, target))
+                    / (2.0 * epsilon);
+
+                let relative_error =
+                    (analytic - numeric).abs() / analytic.abs().max(numeric.abs()).max(1e-8);
+
+                assert!(
+                    relative_error < 1e-2,
+                    "p={probability}, y={target}, analytic={analytic}, numeric={numeric}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bce_gradient_through_sigmoid_is_probability_minus_target() {
+        let probability = 0.3_f32;
+        let target = 1.0_f32;
+
+        let predicted = Matrix::new(1, 1, vec![probability]).unwrap();
+        let expected = Matrix::new(1, 1, vec![target]).unwrap();
+
+        let gradient = BCELoss.derivative(&predicted, &expected).unwrap();
+        let delta = Activation::Sigmoid
+            .derive(&predicted, &gradient)
+            .unwrap()
+            .get(0, 0)
+            .unwrap();
+
+        assert!((delta - (probability - target)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn bce_rejects_incompatible_shapes() {
+        let predicted = Matrix::new(1, 2, vec![0.5, 0.5]).unwrap();
+        let expected = Matrix::new(2, 1, vec![0.0, 1.0]).unwrap();
+
+        assert!(BCELoss.get_loss(&predicted, &expected).is_err());
+        assert!(BCELoss.derivative(&predicted, &expected).is_err());
     }
 }

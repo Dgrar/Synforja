@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 pub struct TrainingOutcome {
     network: NetworkSendInformation,
     mse_loss: f32,
+    r_square_loss: f32,
+    accuracy: f32,
 }
 
 #[derive(Deserialize, Debug)]
@@ -55,6 +57,8 @@ pub fn create_and_train(
     // Validar función de pérdida
     let loss_fn: Box<dyn LossFn> = match config.loss_fn.as_str() {
         "mse_loss" | "MSELoss" => Box::from(MSELoss {}),
+        "bce_loss" | "BCELoss" => Box::from(BCELoss {}),
+        "mae_loss" | "MAELoss" => Box::from(MAELoss {}),
         _ => return Err("Función no admitida".to_string()),
     };
 
@@ -62,28 +66,24 @@ pub fn create_and_train(
     let mut rng = rng();
     let mut model = Network::random(&mut rng, &topology)?;
 
-    // RESOLUCIÓN DINÁMICA: Obtenemos el struct TrainingDataIn según el formato de origen
     let training_data: TrainingDataIn = match source_data {
-        // Si ya viene en JSON, lo deserializamos directamente como antes
         TrainingSource::Json(json_str) => serde_json::from_str(&json_str)
             .map_err(|e| format!("Error al analizar los datos de entrenamiento JSON: {}", e))?,
 
-        // Si viene en CSV, llamamos a tu función, procesamos y mapeamos al struct interno
         TrainingSource::Csv {
             content,
             input_columns,
         } => {
-            let (inputs, expects) = process_csv(&content, input_columns)?;
+            let values = process_csv(&content, input_columns)?;
+            let (inputs, expects): (Vec<Vec<f32>>, Vec<Vec<f32>>) = values.into_iter().unzip();
             TrainingDataIn { inputs, expects }
         }
     };
 
-    // A partir de aquí el código del bucle de entrenamiento se mantiene EXACTAMENTE igual
     if training_data.inputs.len() != training_data.expects.len() {
         return Err("Número de casos de entrada no coincide con los de salida".to_string());
     }
 
-    // Separación de datos (Train / Test)
     let split_point: usize = (training_data.expects.len() as f32 * config.training_split) as usize;
 
     let mut indexes_list: Vec<usize> = (0..training_data.expects.len()).collect();
@@ -122,11 +122,13 @@ pub fn create_and_train(
     }
 
     // Testeo final
-    let final_max_error = evaluate_test_loss(&mut model, &test_data, loss_fn.as_ref())?;
+    let (mse_loss, r_square_loss, accuracy) = evaluate_training_results(&mut model, &test_data)?;
 
     Ok(TrainingOutcome {
         network: model.to_layer_send_information(),
-        mse_loss: final_max_error,
+        mse_loss,
+        r_square_loss,
+        accuracy,
     })
 }
 
@@ -148,6 +150,28 @@ fn evaluate_test_loss(
     }
 
     Ok(max_error)
+}
+
+fn evaluate_training_results(
+    model: &mut Network,
+    test_data: &[(&Vec<f32>, &Vec<f32>)],
+) -> Result<(f32, f32, f32), String> {
+    let mut max_mse_error: f32 = 0.0;
+    let mut r_square_error = 0.0;
+    let mut accuracy = 0.0;
+    for (input, target) in test_data.iter() {
+        let input_matrix = Matrix::from_slice(input.len(), 1, input)?;
+        let (result, _) = model.forward(&input_matrix)?;
+
+        let expected_matrix = Matrix::from_slice(target.len(), 1, target)?;
+        let error: f32 = MSELoss.get_loss(&result, &expected_matrix)?;
+
+        max_mse_error = max_mse_error.max(error);
+        r_square_error = RSquare.calculate(&result, &expected_matrix)?;
+        accuracy = Accuracy.calculate(&result, &expected_matrix)?;
+    }
+
+    Ok((max_mse_error, r_square_error, accuracy))
 }
 
 #[pyfunction]
@@ -177,10 +201,7 @@ pub fn train_csv(
 }
 
 #[pyfunction]
-pub fn parse_csv(
-    csv_content: &str,
-    input_columns: usize,
-) -> PyResult<(Vec<Vec<f32>>, Vec<Vec<f32>>)> {
+pub fn parse_csv(csv_content: &str, input_columns: usize) -> PyResult<Vec<(Vec<f32>, Vec<f32>)>> {
     process_csv(csv_content, input_columns).map_err(PyValueError::new_err)
 }
 
