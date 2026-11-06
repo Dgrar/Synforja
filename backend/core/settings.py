@@ -47,7 +47,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'corsheaders'
+    'corsheaders',
+    'users',
+    'training',
+    "datasets",
 ]
 
 MIDDLEWARE = [
@@ -66,7 +69,7 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': ["*"],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -91,7 +94,15 @@ DATABASES = {
     }
 }
 
-# CORS
+# Caches
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",  # Cambia la IP/Puerto/DB si es necesario
+    }
+}
+
 
 
 # Password validation
@@ -138,4 +149,20 @@ MAILERS = {
     'default': {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
+}
+
+# JWT
+
+from datetime import timedelta
+
+NINJA_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=120 if is_debug else 15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1 if is_debug else 7)
+}
+
+# Rate limits a endpoins protegidos
+
+DEFAULT_PROTECTED_RATE_LIMIT = {
+    "TRIES_LIMIT_AMOUNT": 5,
+    "TRIES_LIMIT_TIME": timedelta(minutes=1)
 }

@@ -7,6 +7,13 @@ class UserRegisterInSchema(Schema):
     password:str
     
 class UserRegisterOutSchema(Schema):
-    id: NonNegativeInt
-    username:str
-    email:str
+    access: str
+    refresh:str
+
+class UserLoginInSchema(Schema):
+    username_or_email: str
+    password: str
+
+class UserLoginOutSchema(Schema):
+    refresh_token: str
+    access_token:str
