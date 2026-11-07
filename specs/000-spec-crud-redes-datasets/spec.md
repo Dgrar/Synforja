@@ -1,6 +1,7 @@
 # Spec 000 — CRUD de redes neuronales y datasets (F5a)
 
 > Estado: **APROBADA** (06-11-2026). Contrato vigente; cualquier cambio vuelve a pasar por revisión.
+> Enmienda 08-11-2026 (a petición del dueño): RF-18 adelanta los topes de red desde F5b; epochs/lr siguen sin tope hasta F5b. Acciones y criterios actualizados en consecuencia.
 
 ## 1. Contexto y objetivo
 
@@ -70,6 +71,8 @@ predicción y la persistencia de pesos entrenados quedan fuera (fase siguiente).
 - RF-16: CUANDO una operación de esta spec se ejecute con éxito, EL SISTEMA persistirá el resultado de forma que sobreviva al reinicio del servidor.
 - RF-17: SI el nº total de violaciones de un dataset excede el límite de 100 del reporte, ENTONCES EL SISTEMA añadirá al reporte el conteo total real de violaciones.
 
+- RF-18: SI una red excede los topes de volumen de la plataforma (más de 20 capas, o una capa con más de 2048 neuronas), ENTONCES EL SISTEMA lo rechazará con el código de entidad no procesable, acumulado junto al resto de violaciones de red (RF-8).
+
 ### Criterios de aceptación por RF
 
 | RF | Criterio verificable | Cómo se comprueba |
@@ -91,6 +94,7 @@ predicción y la persistencia de pesos entrenados quedan fuera (fase siguiente).
 | RF-15 | Red en `training` bloquea edición/borrado con código de conflicto | Red en ese estado (fase siguiente) → editar → 409 |
 | RF-16 | Crear → reiniciar servidor → recurso sigue accesible | Reinicio manual + GET |
 | RF-17 | Reporte truncado expone el total exacto de violaciones | Subir dataset con 150 filas inválidas → 100 entradas + `total: 150` |
+| RF-18 | Última capa válida (todas ≥ 1) y composed topes: 21 capas o capa de 2049 → 422 con 1 sola violación | 20×2049 → 2 entradas; 21×1 → 1 entrada |
 
 ## 5. Requisitos no funcionales
 
@@ -141,7 +145,7 @@ predicción y la persistencia de pesos entrenados quedan fuera (fase siguiente).
 
 - Supuesto-1: la autenticación por token registrada en AGENTS.md (§14.12) está operativa y verificada end-to-end; esta spec no modifica sus endpoints ni el nombre de sus campos (`access`/`refresh` en registro, `access_token`/`refresh_token` en login, tal como vierten hoy).
 - Supuesto-2: la constitución (docs/memory/constitution.md) rige: sin dependencias nuevas ni servicios nuevos; los servicios existentes (caché usada para rate-limit) ya quedaron justificados y esta spec no introduce más.
-- Supuesto-3: los topes numéricos de volumen (máx capas, neuronas por capa, epochs, learning rate) se fijan en F5b junto al motor; esta spec solo exige estructura correcta (RN-1, RN-3). Aclarado y acordado el 06-11-2026.
+- Supuesto-3: los topes numéricos se adelantaron para la red (RF-18, capas ≤ 20 / neuronas por capa ≤ 2048, decidieron 08-11-2026 a petición del dueño); los topes de coste de entrenamiento (epochs máximos, tope de learning rate) siguen en F5b. (Redacción original: acordados todos en F5b, 06-11-2026.)
 - Dependencia-1: ninguna spec previa; esta es 000.
 
 ## 10. Preguntas abiertas

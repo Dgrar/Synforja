@@ -5,26 +5,28 @@
 
 ## Bloque A — Fundamentos (todas las entidades)
 
-- [ ] **T1. App `networks`** — crear la app, modelo `Network` (plan §2), migración y registro en `INSTALLED_APPS`/`admin.py`.
+- [x] **T1. App `networks`** — crear la app, modelo `Network` (plan §2), migración y registro en `INSTALLED_APPS`/`admin.py`.
       *Hecho si:* `manage.py makemigrations networks` genera la migración y `manage.py check` pasa.
-- [ ] **T2. Modelo `Dataset`** — completar app `datasets` con el modelo del plan §2, migración y `admin.py`.
+- [x] **T2. Modelo `Dataset`** — completar app `datasets` con el modelo del plan §2, migración y `admin.py`.
       *Hecho si:* ídem T2 y ambas tablas existen en dev (`migrate` ejecutado).
-- [ ] **T3. Schemas Pydantic** — modelos de entrada/salida para red (con validadores RN-1/RN-2/RN-3) y dataset (`DatasetCsvIn`, `DatasetJsonIn`).
+- [x] **T3. Schemas Pydantic** — modelos de entrada/salida para red (con validadores RN-1/RN-2/RN-3) y dataset (`DatasetCsvIn`, `DatasetJsonIn`).
       *Hecho si:* unit tests de schemas rechazan todas las ramas negativas de RN-1/RN-2/RN-3.
-- [ ] **T4. Generación de semilla** — utilidad: si `seed` ausente, entero aleatorio 64-bit con `secrets`; si presente, se respeta (RN-4).
+- [x] **T4. Generación de semilla** — utilidad: si `seed` ausente, entero aleatorio 64-bit con `secrets`; si presente, se respeta (RN-4).
       *Hecho si:* test de alta sin seed devuelve seed y test con seed fija lo conserva.
 
 ## Bloque B — Router de redes (RF-1..RF-8, RF-15..16)
 
-- [ ] **T5. Router `networks`** — `POST/GET/GET {id}/PATCH {id}/DELETE {id}` montado en `/api/networks`, protegido con JWT bearer; filtro por dueño.
+- [x] **T5. Router `networks`** — `POST/GET/GET {id}/PATCH {id}/DELETE {id}` montado en `/api/networks`, protegido con JWT bearer; filtro por dueño.
       *RF:* RF-1 (201 + draft), RF-2 (detalle completo con seed), RF-3 (listado solo propio, desc), RF-7 (401 sin token).
-- [ ] **T6. Validación acumulativa de red** — acumular todas las violaciones (plan §4) y devolver 422 con lista completa.
+- [x] **T6. Validación acumulativa de red** — acumular todas las violaciones (plan §4) y devolver 422 con lista completa.
       *RF:* RF-8 (3 fallos simultáneos → 3 entradas).
-- [ ] **T7. Aislamiento y 404 uniforme** — recurso ajeno y recurso inexistente responden idéntico.
+      > Ampliación 08-11-2026: topes de red RF-18 (adelantados de F5b) implementados aquí: capa ≤ 2048 neuronas (le en `LayerIn.size`), ≤ 20 capas (max_length en `NetworkIn.layers`); PATCH revalidado cubre el mismo tope. Tests: bordes incluidos (2048/20 válidos; 2049/21 → 422).
+- [x] **T7. Aislamiento y 404 uniforme** — recurso ajeno y recurso inexistente responden idéntico.
       *RF:* RF-6 (mismo código/cuerpo).
-- [ ] **T8. Estados** — PATCH sobre `trained` → `draft` (RF-4); SI state `training` → 409 en PATCH/DELETE (RF-15).
+- [x] **T8. Estados** — PATCH sobre `trained` → `draft` (RF-4); SI state `training` → 409 en PATCH/DELETE (RF-15).
       *Hecho si:* unidad de estado cubre ambas transiciones.
 - [ ] **T9. Deletes completos** — DELETE network 204 y 404 posterior (RF-5); RF-16 verificado en servidor real reiniciando `runserver` (tarea manual al final del proyecto de F5a).
+      > Parte automatizada hecha (DELETE 204 → 404 posterior). Pendiente: verificación RF-16 manual con servidor real (se ejecuta en T15).
 
 ## Bloque C — Router de datasets (RF-9..RF-14, RF-17)
 

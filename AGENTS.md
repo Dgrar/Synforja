@@ -140,7 +140,7 @@ rav run fe_install / fe_start   # cuando exista frontend/
 | F3 — Backprop | pérdidas, regla de la cadena, `backward` | **HECHA** |
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
 | F5a — CRUD | modelos `Network`/`Dataset` + persistencia de pesos, routers Ninja | **SPEC 000 APROBADA** (specs/000) |
-| F5b — Endpoints numéricos | train/predict via `engine_core`, límites de red/épocas | pendiente |
+| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | pendiente (topes de red ya en F5a, §14.20) |
 | F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | pendiente |
 
 ## 13. Definition of Done
@@ -177,6 +177,11 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     `cache.set(timeout=int(timedelta.total_seconds()))` — verificado e2e con servidor real.
     Login responde `{refresh_token, access_token}` y register `{access, refresh}` (unificar
     nombres queda para una pasada de limpieza del schema).
+20. **Topes de tamaño adelantados de F5b a F5a** (RF-18, espec 000, 08-11-2026):
+    capas ≤ 20, neuronas por capa ≤ 2048; los límites de dataset (5 MB / 50k filas,
+    RF-12) llegan con el bloque C; `DATA_UPLOAD_MAX_MEMORY_SIZE` subido a 6,5 MB por
+    delante (463: default 2,5 MB rompería uploads de 5 MB con 400 antes de nuestro
+    handler). Los topes de coste de entrenamiento (epochs/lr) siguen en F5b.
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod

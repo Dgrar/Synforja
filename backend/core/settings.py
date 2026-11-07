@@ -33,7 +33,7 @@ DEBUG = is_debug
 CORS_ALLOW_ALL_ORIGINS = is_debug
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Ejemplo Vite/React
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
 
@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'users',
+    'networks',
     'training',
     "datasets",
 ]
@@ -102,6 +103,10 @@ CACHES = {
         "LOCATION": "redis://127.0.0.1:6379/1",  # Cambia la IP/Puerto/DB si es necesario
     }
 }
+
+# Dataset 5MB RF-12: Django de por sí rechaza bodies > 2.5MB (400)
+# Deja pasar hasta 6.5 MB de dataset
+DATA_UPLOAD_MAX_MEMORY_SIZE = 6_500_000
 
 
 

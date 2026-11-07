@@ -14,7 +14,7 @@
 
 | Modelo | Campos |
 |--------|--------|
-| `Network` | `id` auto · `user` FK(User) · `name` str (sin unicidad) · `type` = "MLP" constante · `state` choices `draft/training/trained` (default `draft`) · `layers` JSONField `[{size:int, activation:str}]` · `epochs` int >=1 · `learning_rate` float >0 · `loss` choices `mse/bce/mae` · `training_split` float en (0,1) · `seed` UnsignedIntegerField (generado si no viene) · `created_at` auto |
+| `Network` | `id` auto · `user` FK(User) · `name` str, máx 100, requerido (sin unicidad) · `type` = "MLP" constante · `state` choices `draft/training/trained` (default `draft`) · `layers` JSONField `[{size:int, activation:str}]` · `epochs` int >=1 · `learning_rate` float >0 · `loss` choices `mse/bce/mae` · `training_split` float en (0,1) · `seed` PositiveBigIntegerField (u63; generado si no viene) · `created_at` auto |
 | `Dataset` | `id` auto · `user` FK(User) · `name` str (sin unicidad) · `source_type` choices `csv/json` · `content` TextField (texto íntegro: CSV puro o JSON) · `total_rows` int · `input_cols` int · `output_cols` int · `created_at` auto |
 
 - Migraciones propias de cada app; `admin.py` registra los modelos (opcional, útil para depurar).
@@ -27,7 +27,7 @@
 | Crear red | `POST /api/networks` | 201 (RF-1) · 422 lista completa (RF-8) · 401 (RF-7) |
 | Listar redes | `GET /api/networks` | 200 solo propias desc por created_at (RF-3, RF-7) |
 | Detalle red | `GET /api/networks/{id}` | 200 completo (RF-2) · 404 uniforme (RF-6) |
-| Editar red | `PATCH /api/networks/{id}` | 200; `trained → draft` (RF-4) · 422 (RF-8) · 404 (RF-6) · 409 si training (RF-15) |
+| Editar red | `PATCH /api/networks/{id}` | 200; `trained → draft` (RF-4) · 422 (RF-8/RF-18) · 404 (RF-6) · 409 si training (RF-15) |
 | Borrar red | `DELETE /api/networks/{id}` | 204 (RF-5) · 404 (RF-6) · 401 (RF-7) |
 | Subir CSV | `POST /api/datasets` (body: `content` str, `input_cols` int, implícito source csv) | 201 + stats (RF-9) · 422 reporte (RF-11/17) · 413/422 límites (RF-12) |
 | Subir JSON | `POST /api/datasets` (body: `content` json con bloques entrada/salida paralelos) | 201 + stats (RF-10) · 422 (RF-11/17) |
@@ -41,8 +41,9 @@
 ## 4. Validación y reporte
 
 - **Red** (RF-8): validar de una pasada y acumular TODAS las violaciones: nº capas ≥ 2 (RN-1), size ≥ 1 por capa (RN-1), activación en enum (RN-2), epochs ≥ 1, lr > 0, loss enum, split 0 < x < 1 (RN-3), y `input_cols` nunca aquí (concepto de dataset). Devolver lista completa, no atajo al primer error.
-- **Semilla** (RN-4): si `seed` ausente en el alta, generar entero aleatorio de 64 bits con `secrets` y guardarlo; si viene, aceptarlo tal cual.
+- **Semilla** (RN-4): si `seed` ausente en el alta, generar entero aleatorio con `secrets.randbits(63)` (u63: cabe en INTEGER de SQLite/Postgres; decisión del bloque A) y guardarlo; si viene, aceptarlo tal cual dentro de [0, 2^63-1].
 - **CSV** (RF-9/11/12): pre-chequeo de límites ANTES de parsear (bytes del body ≈ 5 MB; nº filas ≤ 50 000 tras parseo; `1 <= input_cols < total_cols`). Después: escaneo fila a fila para construir el reporte `{row, col, reason}` (longitud distinta de la esperada; valor no numérico; valor no finito: NaN/inf/nulo/texto). Máx 100 entradas + `total` real si se excede (RF-17). `output_cols = total_cols - input_cols`.
+- **Redes (RF-18)**: topes `MAX_LAYERS = 20` y `MAX_LAYER_NEURONS = 2048` como constantes en `networks/schemas.py`; se aplican en `LayerIn.size` (le) y `NetworkIn.layers` (max_length). PATCH revalida con `NetworkIn`, así el mismo tope cubre alta y edición. Decidido 08-11-2026.
 - **JSON** (RF-10/11): dos bloques paralelos (`inputs`, `expects`): validar misma longitud, mismas longitudes internas coherentes y tipos numéricos finitos; el reporte solo considera primera dimensión como "columna" (`col: 0` para block-level, `col: k` para elemento k del vector) y se explica igual en el cuerpo de detalle.
 - Rechazo temprano de límites (RF-12): responder antes de cualquier parseo cuando el body excede el tamaño o el nº de filas/columnas es obviamente fuera de rango.
 
@@ -60,6 +61,9 @@
 
 ## 7. Riesgos / decisiones abiertas del plan
 
+- El límite de upload de 5 MB (RF-12) choca con el default de Django `DATA_UPLOAD_MAX_MEMORY_SIZE` (2,5 MB): subir un dataset de 5 MB daría 400 antes de llegar a nuestro handler. Subido ya a 6,5 MB en settings el 08-11-2026, antes del bloque C.
+
 - El reporte de errores de CSV con posición exacta es O(n filas) sobre el body límite (5 MB) — asumible en <2 s (RNF-2); medir y, si tira mal, particionar el escaneo por bloques.
 - PATCH vs PUT — se elige PATCH que admite documento parcial o completo (con el cuerpo completo reusa los mismos validadores del alta, así RF-4 no duplica lógica).
 - Plantillas del panel admin no se tocan (ya funcionan).
+- Decisiones del bloque A (06-11-2026): `name` máx 100 y requerido en red y dataset; activaciones normalizadas a minúsculas antes de validar (RN-2 case-insensitive); semilla u63 con `secrets.randbits(63)` en `PositiveBigIntegerField`.
