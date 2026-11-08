@@ -4,13 +4,12 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
+from core.apitest import ApiTestBase
+
 REGISTER_URL = "/api/users/register"
 LOGIN_URL = "/api/users/login"
 
 User = get_user_model()
-
-# Los tests no dependen de Redis LocMemCache hermético por proceso.
-LOC_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
 
 def rand_suffix() -> str:
@@ -25,20 +24,8 @@ def register_body(email_suffix: str) -> dict:
     }
 
 
-@override_settings(CACHES=LOC_CACHES)
-class AuthAPITestsBase(TestCase):
-    def setUp(self):
-        super().setUp()
-        # Creamos ip personalizada para cada test
-        self.remote_ip = f"10.{uuid.uuid4().int & 0xFF}.{uuid.uuid4().int & 0xFF}.{uuid.uuid4().int & 0xFF}"
-
-    def post_json(self, url: str, data: dict):
-        return self.client.post(
-            url,
-            data=json.dumps(data),
-            content_type="application/json",
-            REMOTE_ADDR=self.remote_ip,
-        )
+class AuthAPITestsBase(ApiTestBase):
+    """Hereda cache local, ip única por test y helpers HTTP de core.apitest."""
 
 
 class AuthRegisterTests(AuthAPITestsBase):

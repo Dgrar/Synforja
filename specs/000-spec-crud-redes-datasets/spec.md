@@ -2,6 +2,7 @@
 
 > Estado: **APROBADA** (06-11-2026). Contrato vigente; cualquier cambio vuelve a pasar por revisión.
 > Enmienda 08-11-2026 (a petición del dueño): RF-18 adelanta los topes de red desde F5b; epochs/lr siguen sin tope hasta F5b. Acciones y criterios actualizados en consecuencia.
+> Enmienda 08-11-2026 (II — bloque C): `POST /api/datasets` exige `source_type` explícito (sustituye la inferencia por forma "implícito" del plan); el reporte RF-11/17 usa numeración 1-based con claves `row`/`col`/`reason`; contratos de error fijados (§7); el tamaño límite se mide sobre el propio contenido (UTF-8 del dataset), no sobre el cuerpo HTTP.
 
 ## 1. Contexto y objetivo
 
@@ -58,8 +59,8 @@ predicción y la persistencia de pesos entrenados quedan fuera (fase siguiente).
 
 ### Datasets
 
-- RF-9: CUANDO un usuario autenticado suba un CSV junto con su nº de columnas de entrada y cumpla las reglas de negocio, EL SISTEMA lo almacenará como dataset suyo y devolverá identificador más estadísticas: nº total de filas, nº columnas de entrada y nº columnas de salida.
-- RF-10: CUANDO un usuario autenticado suba un JSON estructurado en colecciones paralelas de entradas y salidas esperadas y cumpla las reglas de negocio, EL SISTEMA lo almacenará como dataset suyo y devolverá identificador más las mismas estadísticas que el CSV.
+- RF-9: CUANDO un usuario autenticado suba un dataset con `source_type="csv"` junto con su nº de columnas de entrada y cumpla las reglas de negocio, EL SISTEMA lo almacenará como dataset suyo y devolverá identificador más estadísticas: nº total de filas, nº columnas de entrada y nº columnas de salida.
+- RF-10: CUANDO un usuario autenticado suba un dataset con `source_type="json"` estructurado en colecciones paralelas de entradas y salidas esperadas y cumpla las reglas de negocio, EL SISTEMA lo almacenará como dataset suyo y devolverá identificador más las mismas estadísticas que el CSV.
 - RF-11: SI un dataset subido (CSV o JSON) contiene valores estructurales o numéricos inválidos, ENTONCES EL SISTEMA lo rechazará con el código de "entidad no procesable" y un reporte con ubicación exacta (fila y columna) de cada violación hasta un máximo de 100 entradas.
 - RF-12: SI el archivo/solicitud del dataset supera alguno de los límites medibles (tamaño ≤ 5 MB, ≤ 50 000 filas, nº columnas de entrada entre 1 y total−1), ENTONCES EL SISTEMA lo rechazará antes de procesar su contenido, devolviendo el código de error correspondiente a cada límite excedido.
 - RF-13: CUANDO el dueño solicite su listado de datasets o el detalle de uno suyo, EL SISTEMA devolverá el registro con sus estadísticas; el detalle incluirá la forma de obtener el contenido íntegro bajo demanda del dueño.
@@ -87,9 +88,9 @@ predicción y la persistencia de pesos entrenados quedan fuera (fase siguiente).
 | RF-8 | Alta inválida devuelve 422 con N violaciones correspondientes | Enviar topología con 3 fallos simultáneos → llegar 3 entradas |
 | RF-9 | CSV válido queda guardado con {total_rows, input_cols, output_cols} correctos | Subir CSV de referencia con cifras conocidas y comparar |
 | RF-10 | Ídem JSON con cuentas en ambos bloques | Ídem con JSON de referencia |
-| RF-11 | Errores devuelven por cada problema {row, column, motivo} hasta 100 entradas | Subir datasets con 3 filas mal y comprobar las 3 entradas |
+| RF-11 | Errores devuelven 422 con `{"violations": [{row, col, reason}...], "total": N}` (row/col 1-based, reason en texto) hasta 100 entradas | Subir datasets con 3 filas mal y comprobar las 3 entradas |
 | RF-12 | Excesos de límite se rechazan sin procesar el fichero | Subir dataset de 6 MB → código de tamaño excedido y ninguna alta en el listado |
-| RF-13 | Detalle/listado incluye estadísticas y vía para el contenido íntegro | GET → registro con estadísticas; mecanismo de descarga existe |
+| RF-13 | Detalle/listado incluye estadísticas y `content_url`; `GET {id}/content` entrega el contenido íntegro | GET → registro con estadísticas + `content_url`; descarga devuelve el contenido original |
 | RF-14 | DELETE dataset → GET con id recibido devuelve 404 | DELETE → GET → 404 |
 | RF-15 | Red en `training` bloquea edición/borrado con código de conflicto | Red en ese estado (fase siguiente) → editar → 409 |
 | RF-16 | Crear → reiniciar servidor → recurso sigue accesible | Reinicio manual + GET |
@@ -119,6 +120,7 @@ predicción y la persistencia de pesos entrenados quedan fuera (fase siguiente).
 
 | Condición | Comportamiento esperado |
 |-----------|-------------------------|
+| Cuerpos de error (enmienda II) | RF-11/RF-17 → 422 con `{"detail": {"violations": [{"row","col","reason"}...], "total": N}}`; RF-12 → mensaje plano (413 tamaño, 422 filas/`input_cols`/vacío); cuerpo > 6,5 MB → 400 genérico de Django (costura conocida) |
 | SI la creación/edición de red viola alguna RN | ENTONCES EL SISTEMA responderá 422 con la lista completa de violaciones (RF-8) |
 | SI el dataset JSON llega con nº de elementos distinto entre entradas y salidas | ENTONCES EL SISTEMA responderá 422 indicando el desbalance |
 | SI el CSV llega vacío o sin filas | ENTONCES EL SISTEMA responderá 422 |

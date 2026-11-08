@@ -6,6 +6,9 @@ from django.test import TestCase, override_settings
 # Los tests no dependen de Redis: LocMemCache hermético por proceso.
 LOC_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
 
+# PBKDF2 tarda 0.7-6 s por hash según la carga: en tests, MD5.
+TEST_HASHER = "django.contrib.auth.hashers.MD5PasswordHasher"
+
 
 def rand_suffix() -> str:
     return uuid.uuid4().hex[:10]
@@ -18,7 +21,7 @@ def auth_headers(user) -> dict:
     return {"HTTP_AUTHORIZATION": f"Bearer {refresh.access_token}"}
 
 
-@override_settings(CACHES=LOC_CACHES)
+@override_settings(CACHES=LOC_CACHES, PASSWORD_HASHERS=[TEST_HASHER])
 class ApiTestBase(TestCase):
     """Base para tests de API: cache local, ip propia y helpers HTTP.
 

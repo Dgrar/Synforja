@@ -29,9 +29,10 @@
 | Detalle red | `GET /api/networks/{id}` | 200 completo (RF-2) · 404 uniforme (RF-6) |
 | Editar red | `PATCH /api/networks/{id}` | 200; `trained → draft` (RF-4) · 422 (RF-8/RF-18) · 404 (RF-6) · 409 si training (RF-15) |
 | Borrar red | `DELETE /api/networks/{id}` | 204 (RF-5) · 404 (RF-6) · 401 (RF-7) |
-| Subir CSV | `POST /api/datasets` (body: `content` str, `input_cols` int, implícito source csv) | 201 + stats (RF-9) · 422 reporte (RF-11/17) · 413/422 límites (RF-12) |
-| Subir JSON | `POST /api/datasets` (body: `content` json con bloques entrada/salida paralelos) | 201 + stats (RF-10) · 422 (RF-11/17) |
-| Listar/detalle datasets | `GET /api/datasets`, `GET /api/datasets/{id}` | 200 con stats; detalle incluye cómo pedir el contenido (RF-13) |
+| Subir CSV | `POST /api/datasets` (body: `source_type: "csv"`, `content` str, `input_cols` int ≥ 1; enmienda II: explícito) | 201 + stats (RF-9) · 422 reporte (RF-11/17) · 413/422 límites (RF-12) |
+| Subir JSON | `POST /api/datasets` (body: `source_type: "json"`, `content` objeto con bloques `inputs`/`expects`; sin `input_cols`) | 201 + stats (RF-10) · 422 (RF-11/17) |
+| Listar/detalle datasets | `GET /api/datasets`, `GET /api/datasets/{id}` | 200 con stats; detalle incluye `content_url` (RF-13) |
+| Contenido dataset | `GET /api/datasets/{id}/content` | 200 `{id, name, source_type, content}` con el contenido íntegro (RF-13) |
 | Borrar dataset | `DELETE /api/datasets/{id}` | 204 (RF-14) |
 
 - Errores con el formato de casa: `{"detail": ...}` (igual que users).
@@ -46,6 +47,17 @@
 - **Redes (RF-18)**: topes `MAX_LAYERS = 20` y `MAX_LAYER_NEURONS = 2048` como constantes en `networks/schemas.py`; se aplican en `LayerIn.size` (le) y `NetworkIn.layers` (max_length). PATCH revalida con `NetworkIn`, así el mismo tope cubre alta y edición. Decidido 08-11-2026.
 - **JSON** (RF-10/11): dos bloques paralelos (`inputs`, `expects`): validar misma longitud, mismas longitudes internas coherentes y tipos numéricos finitos; el reporte solo considera primera dimensión como "columna" (`col: 0` para block-level, `col: k` para elemento k del vector) y se explica igual en el cuerpo de detalle.
 - Rechazo temprano de límites (RF-12): responder antes de cualquier parseo cuando el body excede el tamaño o el nº de filas/columnas es obviamente fuera de rango.
+
+### 4.1 Decisiones del bloque C (08-11-2026, enmienda II de la spec)
+
+- **`source_type` explícito** en `POST /api/datasets` (sustituye la inferencia por forma del plan original): errores nítidos (un CSV sin `input_cols` se reporta como CSV, no como "JSON malformado"); `input_cols` obligatorio en CSV y prohibido en JSON.
+- **Numeración 1-based** en el reporte (fila 1 = primera), claves `row`/`col`/`reason`; `reason` en texto español (mensajes al usuario), claves en inglés (API).
+- **Contratos de error**: violaciones → 422 `{"detail": {"violations": [...], "total": N}}` (dict, no `HttpError`: ninja 1.7.1 hace `str(detail)` y los dicts explotan → se devuelve `JsonResponse` directo). Límites → `HttpError` plano (413/422). Código de lógica en `datasets/validation.py` (pura, sin HTTP) con outcomes `Ok | Limit | Invalid`.
+- **Tamaño medido sobre el contenido** (`len(content.encode("utf-8"))` para CSV, `len(json.dumps(content, separators compactos))` para JSON — exactamente los bytes que se almacenan), no sobre el request.
+- **Anchura de referencia CSV** = primera fila NO vacía; fila vacía media = violación "fila vacía" (CSV puro, estricto); espacios sobrantes se aceptan (`float(" 1 ")` vale).
+- **JSON**: claves exactas `inputs`/`expects` (extra = violación); filas de referencia = fila 1 de cada bloque (si mide 0 → violación "vacíos"); desbalance de bloques = violación block-level col 0; `bool` NO es número; escaneo de ambos bloques sigue aunque el nº de filas difiera (reporte completo).
+- **`content_url` en `DatasetOut`** (RF-13): camino `/api/datasets/{id}/content` (otro endpoint para no cargar el detalle con hasta 5 MB); dicho endpoint devuelve `{id, name, source_type, content}`.
+- **Almacenamiento**: CSV tal cual llega; JSON re-serializado compacto `separators=(",", ":")` (los valores ya salieron validados finitos).
 
 ## 5. Estados y aislamiento
 

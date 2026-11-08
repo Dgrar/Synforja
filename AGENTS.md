@@ -93,12 +93,22 @@ Spec-driven: **spec 000 aprobada** en `specs/000-spec-crud-redes-datasets/` (spe
 — define el CRUD de `networks`/`datasets` (F5a); train/predict y pesos van en F5b.
 
 Implementado: schema NinjaAPI con throttling global (anon 10/s, auth 100/m) y
-router `users` montado en `/api/users` (+ `/api/test`). Endpoints verificados end-to-end
-con servidor real: `POST /api/users/register` y `POST /api/users/login` (JWT + rate-limit 429).
+routers `users` (`/api/users`), `networks` (`/api/networks`, CRUD JWT + RF-18) y
+`datasets` (`/api/datasets`, CRUD JWT con límites y reporte 1-based, §14.21),
+montados en `core/api.py` (+ `/api/test`). Auth verificado e2e; routers verificados
+por suite (112 tests, hasher MD5 §14.22).
 
-Pendiente (borrador): `POST/GET /networks`, `POST /networks/{id}/train`,
-`POST /networks/{id}/predict`, `GET /networks/{id}/runs`. Errores `{ "detail": ... }`,
-schemas Ninja/Pydantic. **Sync** por ahora; async/celery solo si una fase lo exige.
+Pendiente (F5b): `POST /networks/{id}/train`, `POST /networks/{id}/predict`,
+`GET /networks/{id}/runs`. Errores `{ "detail": ... }` (reporte de dataset:
+`{"detail": {"violations", "total"}}`), schemas Ninja/Pydantic. **Sync** por ahora;
+async/celery solo si una fase lo exige.
+
+Especs aprobadas para F5b (08-11-2026): **001** entrenamiento one-shot / runs /
+volcado de pesos JSON (≤ 50 MB) / predict de un vector (topes de coste:
+epochs ≤ 10 000, lr ≤ 1, presupuesto epochs × filas ≤ 5 M, sin tope de reloj —
+decisión del dueño) y **002** streaming del entrenamiento (la petición emite el
+stream; eventos de train+test por época; cancelación al cortar la conexión sin
+run; curva no persistida). Especifican QUÉ; el plan/graf descenderá a CÓMO.
 
 ## 9. Motor Rust (`engine-core`)
 Responsabilidad única: **matemática numérica de la red**.
@@ -139,7 +149,7 @@ rav run fe_install / fe_start   # cuando exista frontend/
 | F2 — Forward | capa→red, `forward` | **HECHA** |
 | F3 — Backprop | pérdidas, regla de la cadena, `backward` | **HECHA** |
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
-| F5a — CRUD | modelos `Network`/`Dataset` + persistencia de pesos, routers Ninja | **SPEC 000 APROBADA** (specs/000) |
+| F5a — CRUD | modelos `Network`/`Dataset` + routers Ninja | **HECHA** (spec 000 completa: A+B+C+D, 112 tests) |
 | F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | pendiente (topes de red ya en F5a, §14.20) |
 | F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | pendiente |
 
@@ -182,6 +192,33 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     RF-12) llegan con el bloque C; `DATA_UPLOAD_MAX_MEMORY_SIZE` subido a 6,5 MB por
     delante (463: default 2,5 MB rompería uploads de 5 MB con 400 antes de nuestro
     handler). Los topes de coste de entrenamiento (epochs/lr) siguen en F5b.
+21. **Bloque C (08-11-2026, enmienda II spec 000)**: `POST /api/datasets` exige
+    `source_type` explícito (sustituye la inferencia "implícito" del plan); reporte
+    RF-11/17 en 1-based con claves `row/col/reason` y cuerpo
+    `{"detail": {"violations": [...], "total": N}}` vía `JsonResponse` (ninja 1.7.1
+    hace `str()` del detail de `HttpError`: los dicts explotan); límites 413/422 con
+    mensaje plano; lógica de escaneo pura en `datasets/validation.py` con outcomes
+    `Ok | Limit | Invalid` y tests     unitarios; tamaño límite medido sobre el contenido (≤ 5 MB, ≤ 50k filas);
+    anchura CSV = primera fila no vacía, fila en blanco = violación (CSV puro
+    estricto); JSON: claves exactas `inputs`/`expects`, bool no es número, sin
+    `input_cols`; `DatasetOut` incluye `content_url` apuntando a
+    `GET /api/datasets/{id}/content` (RF-13); CSV almacenado tal cual, JSON
+    re-serializado compacto.
+22. **Hasher de tests = MD5** (`core/apitest.py` `TEST_HASHER`, `override_settings`
+    en `ApiTestBase`): PBKDF2 default de Django tarda 0,7–6 s por hash en esta
+    máquina y los suites tardaban minutos (falsos hangs); con MD5: suite completa
+    112 tests en ~3 s. Solo afecta ejecución de tests.
+23. **Redis en Docker** (08-11-2026): Redis estaba caído en dev; el dueño eligió
+    arrancarlo como contenedor `synforja-redis` (redis:7-alpine, puerto 6379,
+    `--restart unless-stopped`) para hacer el e2e del bloque D idéntico a producción.
+    Si un día Docker no corre, el backend dará 500 en cada request por el throttling.
+24. **RNF verificados en bloque D** (08-11-2026): RNF-1 CRUD red con 100 redes —
+    list p95 **39,6 ms**, detail/create/patch/delete ≤ 6,2 ms (umbral 200 ms);
+    RNF-2 CSV 50k filas / 4,41 MB — subida completa **534,8 ms** (umbral 2 s),
+    content fetch 31,7 ms. Benchmarks en `core/perf.py`, NO corren con la suite
+    general (solo `manage.py test core.perf`); suite entera = 112 tests ~3,7 s.
+25. **RF-16 verificado** (bloque D): crear red → matar `runserver` → arrancar →
+    GET 200; cierre de F5a con e2e de 19 comprobaciones PASS (CU-1..CU-6).
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod
