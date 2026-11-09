@@ -1,6 +1,6 @@
 // Modulo donde se realizaran las operaciones de matrices
 
-use std::{rc::Rc, slice::Iter};
+use std::rc::Rc;
 
 use rand::{Rng, RngExt};
 
@@ -93,6 +93,7 @@ impl Matrix {
         mut_values[row * self.cols + col] = value;
     }
     // get_row no necesita result, ya que es solamente llamado por la funcion de multiplicar
+    #[cfg(test)]
     fn get_row(&self, index: usize) -> Result<&[f32], String> {
         if index > self.rows - 1 {
             return Err(format!("No existe la fila {index} en la matrix"));
@@ -117,6 +118,29 @@ impl Matrix {
         // Obtenemos acceso directo a los arrays de los valores de las 2 matrices
         let self_vals = &*self.values;
         let other_vals = &*other_matrix.values;
+
+        if out_cols == 1 {
+            for i in 0..out_rows {
+                let self_row_start = i * inner_dim;
+                let mut acc = 0.0;
+
+                for k in 0..inner_dim {
+                    let a_val = self_vals[self_row_start + k];
+
+                    if a_val != 0.0 {
+                        acc += a_val * other_vals[k];
+                    }
+                }
+
+                values[i] = acc;
+            }
+
+            return Ok(Matrix {
+                rows: out_rows,
+                cols: 1,
+                values: Rc::from(values.into_boxed_slice()),
+            });
+        }
 
         // Pasamos por cada una de las filas de la primera matriz
         for i in 0..out_rows {
@@ -150,6 +174,161 @@ impl Matrix {
             cols: out_cols,
             values: Rc::from(values.into_boxed_slice()),
         })
+    }
+
+    pub fn multiply_transposed(&self, other_matrix: &Matrix) -> Result<Matrix, String> {
+        if self.cols != other_matrix.cols {
+            return Err(
+                "Dimensiones incorrectas, las columnas de ambas matrices no coinciden".to_string(),
+            );
+        }
+
+        let out_rows = self.rows;
+        let out_cols = other_matrix.rows;
+        let inner_dim = self.cols;
+
+        let mut values = vec![0.0; out_rows * out_cols];
+
+        let self_vals = &*self.values;
+        let other_vals = &*other_matrix.values;
+
+        for i in 0..out_rows {
+            let self_row_start = i * inner_dim;
+            let dest_row_start = i * out_cols;
+
+            for k in 0..inner_dim {
+                let a_val = self_vals[self_row_start + k];
+
+                if a_val == 0.0 {
+                    continue;
+                }
+
+                let other_row_start = k * out_cols;
+                let dest_slice = &mut values[dest_row_start..dest_row_start + out_cols];
+                let other_slice = &other_vals[other_row_start..other_row_start + out_cols];
+
+                for j in 0..out_cols {
+                    dest_slice[j] += a_val * other_slice[j];
+                }
+            }
+        }
+
+        Ok(Matrix {
+            rows: out_rows,
+            cols: out_cols,
+            values: Rc::from(values.into_boxed_slice()),
+        })
+    }
+
+    pub fn transpose_multiply(&self, other_matrix: &Matrix) -> Result<Matrix, String> {
+        if self.rows != other_matrix.rows {
+            return Err(
+                "Dimensiones incorrectas, las filas de ambas matrices no coinciden".to_string(),
+            );
+        }
+
+        let out_rows = self.cols;
+        let out_cols = other_matrix.cols;
+        let inner_dim = self.rows;
+
+        let mut values = vec![0.0; out_rows * out_cols];
+
+        let self_vals = &*self.values;
+        let other_vals = &*other_matrix.values;
+
+        if out_cols == 1 {
+            for i in 0..out_rows {
+                let mut acc = 0.0;
+
+                for k in 0..inner_dim {
+                    let a_val = self_vals[k * out_rows + i];
+
+                    if a_val != 0.0 {
+                        acc += a_val * other_vals[k];
+                    }
+                }
+
+                values[i] = acc;
+            }
+
+            return Ok(Matrix {
+                rows: out_rows,
+                cols: 1,
+                values: Rc::from(values.into_boxed_slice()),
+            });
+        }
+
+        for i in 0..out_rows {
+            let dest_row_start = i * out_cols;
+
+            for k in 0..inner_dim {
+                let a_val = self_vals[k * out_rows + i];
+
+                if a_val == 0.0 {
+                    continue;
+                }
+
+                let other_row_start = k * out_cols;
+                let dest_slice = &mut values[dest_row_start..dest_row_start + out_cols];
+                let other_slice = &other_vals[other_row_start..other_row_start + out_cols];
+
+                for j in 0..out_cols {
+                    dest_slice[j] += a_val * other_slice[j];
+                }
+            }
+        }
+
+        Ok(Matrix {
+            rows: out_rows,
+            cols: out_cols,
+            values: Rc::from(values.into_boxed_slice()),
+        })
+    }
+
+    pub fn add_bias_in_place(&mut self, bias: &[f32]) -> Result<(), String> {
+        if bias.len() != self.rows {
+            return Err("El tamaño del bias no coincide con las filas de la matriz".to_string());
+        }
+
+        let cols = self.cols;
+        let values = Rc::make_mut(&mut self.values);
+
+        for (row, bias_value) in bias.iter().enumerate() {
+            let start = row * cols;
+
+            for value in &mut values[start..start + cols] {
+                *value += *bias_value;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn sub_scaled_in_place(
+        &mut self,
+        other_matrix: &Matrix,
+        scalar: f32,
+    ) -> Result<(), String> {
+        if self.rows != other_matrix.rows || self.cols != other_matrix.cols {
+            return Err("Las matrices deben ser de iguales dimensiones".to_string());
+        }
+
+        let values = Rc::make_mut(&mut self.values);
+
+        for (value, delta) in values.iter_mut().zip(&*other_matrix.values) {
+            *value -= *delta * scalar;
+        }
+
+        Ok(())
+    }
+
+    pub fn map_in_place<F>(&mut self, mut f: F)
+    where
+        F: FnMut(f32) -> f32,
+    {
+        for value in Rc::make_mut(&mut self.values).iter_mut() {
+            *value = f(*value);
+        }
     }
 
     pub fn sum(&self, other_matrix: &Matrix) -> Result<Matrix, String> {

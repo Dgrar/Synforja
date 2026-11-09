@@ -3,10 +3,15 @@ import time
 from django.contrib.auth import get_user_model
 
 from core.apitest import ApiTestBase, rand_suffix
-from networks.models import Network
+from networks.models import Network, Run
 
 NET_TARGET_MS = 200.0
 DATASET_TARGET_MS = 2000.0
+TRAIN_TARGET_MS = 300_000.0
+RUNS_TARGET_MS = 200.0
+
+TRAIN_REFERENCE_ROWS = 5_000
+TRAIN_REFERENCE_EPOCHS = 1_000
 
 API_NET = {
     "name": "perf",
@@ -21,12 +26,36 @@ API_NET = {
     "training_split": 0.8,
 }
 
+TRAIN_REFERENCE_NET = {
+    "name": "referencia",
+    "layers": [
+        {"size": 7, "activation": "relu"},
+        {"size": 64, "activation": "relu"},
+        {"size": 64, "activation": "relu"},
+        {"size": 1, "activation": "linear"},
+    ],
+    "epochs": TRAIN_REFERENCE_EPOCHS,
+    "learning_rate": 0.01,
+    "loss": "mse",
+    "training_split": 0.8,
+    "seed": 42,
+}
+
 
 def dataset_50k_csv() -> str:
     factors = (3.5, 1.5, 7.25, 0.125, 97.0, 11.0, 3.0, 123.0)
     rows = (
         ",".join(f"{i * factor:.4f}" for factor in factors) for i in range(50_000)
     )
+    return "\n".join(rows)
+
+
+def train_reference_csv() -> str:
+    rows = []
+    for i in range(TRAIN_REFERENCE_ROWS):
+        inputs = [((i * factor) % 101) / 101.0 for factor in (1, 3, 7, 11, 17, 23, 29)]
+        target = sum(inputs) / len(inputs)
+        rows.append(",".join(f"{value:.4f}" for value in [*inputs, target]))
     return "\n".join(rows)
 
 
@@ -39,7 +68,7 @@ def ms(start: float) -> float:
 
 
 class PerformanceTests(ApiTestBase):
-    """RNF-1/RNF-2: se corren por tarea (manage.py test core.perf), no en la suite general."""
+    """RNF de las fases 000 y 001: se corren por tarea (manage.py test core.perf), no en la suite general."""
 
     def setUp(self):
         super().setUp()
@@ -144,3 +173,76 @@ class PerformanceTests(ApiTestBase):
         response = self.get_json(f"/api/datasets/{dataset_id}/content")
         self.assertEqual(response.status_code, 200)
         print(f"[RNF-2] content_fetch_ms: {ms(start):.1f} ms")
+    # Comprueba que tarda menos de 5 mins
+    def test_rnf1_train_reference_below_5min(self):
+        start = time.perf_counter()
+        response = self.post_json(
+            "/api/datasets",
+            {
+                "source_type": "csv",
+                "name": "referencia",
+                "content": train_reference_csv(),
+                "input_cols": 7,
+            },
+        )
+        dataset_elapsed = ms(start)
+        self.assertEqual(response.status_code, 201, response.content[:200])
+        dataset_id = response.json()["id"]
+
+        network = self.post_json("/api/networks", TRAIN_REFERENCE_NET)
+        self.assertEqual(network.status_code, 201, network.content[:200])
+        network_id = network.json()["id"]
+
+        start = time.perf_counter()
+        response = self.post_json(
+            f"/api/networks/{network_id}/train", {"dataset_id": dataset_id}
+        )
+        elapsed = ms(start)
+
+        self.assertEqual(response.status_code, 201, response.content[:500])
+        body = response.json()
+        print(f"[RNF-1/001] dataset_setup_ms: {dataset_elapsed:.1f} ms")
+        print(f"[RNF-1/001] train_reference_ms: {elapsed:.1f} ms")
+        print(f"[RNF-1/001] mse_loss: {body['mse_loss']}")
+        print(f"[RNF-1/001] r_square: {body['r_square']}")
+        self.assertLess(elapsed, TRAIN_TARGET_MS)
+
+    def test_rnf3_runs_list_below_200ms(self):
+        network = Network.objects.create(
+            user=self.user,
+            name="muchos_runs",
+            layers=[
+                {"size": 4, "activation": "relu"},
+                {"size": 1, "activation": "linear"},
+            ],
+            epochs=10,
+            learning_rate=0.1,
+            loss="mse",
+            training_split=0.8,
+            seed=1,
+        )
+        Run.objects.bulk_create(
+            Run(
+                network=network,
+                dataset_id=i + 1,
+                total_rows=100,
+                input_cols=4,
+                output_cols=1,
+                mse_loss=0.1,
+                r_square=0.9,
+                accuracy=0.8,
+            )
+            for i in range(100)
+        )
+
+        times = []
+        for _ in range(20):
+            start = time.perf_counter()
+            response = self.get_json(f"/api/networks/{network.id}/runs")
+            self.assertEqual(response.status_code, 200, response.content[:200])
+            times.append(ms(start))
+
+        self.assertEqual(len(response.json()), 100)
+        value = p95(times)
+        print(f"[RNF-3/001] runs_list_p95_ms: {value:.1f} ms")
+        self.assertLess(value, RUNS_TARGET_MS)

@@ -1,14 +1,41 @@
-from django.http import HttpRequest
+import json
+import math
+
+import engine_core
+from django.db import transaction
+from django.http import HttpRequest, JsonResponse
 
 from ninja import Router
 from ninja.errors import HttpError
 from ninja_jwt.authentication import JWTAuth
 
-from .models import Network
-from .schemas import NetworkIn, NetworkOut, NetworkPatchIn
+from datasets.models import Dataset
+
+from .engine import (
+    MAX_DUMP_BYTES,
+    build_model_config,
+    engine_error_status,
+    estimate_dump_bytes,
+    parse_engine_error,
+)
+from .models import Network, Run
+from .schemas import (
+    NetworkIn,
+    NetworkOut,
+    NetworkPatchIn,
+    PredictIn,
+    PredictOut,
+    RunDatasetOut,
+    RunOut,
+    TrainIn,
+)
 from .seed import generate_seed
 
 router = Router(auth=JWTAuth())
+
+MAX_TRAIN_EPOCHS = 10_000
+MAX_TRAIN_LR = 1.0
+MAX_TRAIN_STEPS = 5_000_000
 
 
 def as_out(network: Network) -> NetworkOut:
@@ -31,6 +58,65 @@ def get_own_or_404(user, network_id: int) -> Network:
         return Network.objects.get(pk=network_id, user=user)
     except (Network.DoesNotExist, ValueError):
         raise HttpError(404, "Recurso no encontrado")
+
+
+def get_own_dataset_or_404(user, dataset_id: int) -> Dataset:
+    try:
+        return Dataset.objects.get(pk=dataset_id, user=user)
+    except (Dataset.DoesNotExist, ValueError):
+        raise HttpError(404, "Recurso no encontrado")
+
+# Comprueba que la forma es correcta
+def ensure_trainable_shape(network: Network, dataset: Dataset) -> None:
+    first = network.layers[0]["size"]
+    last = network.layers[-1]["size"]
+    if first != dataset.input_cols or last != dataset.output_cols:
+        raise HttpError(
+            422,
+            f"La red espera {first} entradas y {last} salidas, "
+            f"el dataset tiene {dataset.input_cols} entradas y {dataset.output_cols} salidas",
+        )
+
+# Comprueba que el precio para entrenar al modelo no es demasiado
+def ensure_trainable_cost(network: Network, dataset: Dataset) -> None:
+    if network.epochs > MAX_TRAIN_EPOCHS:
+        raise HttpError(422, f"epochs no puede superar {MAX_TRAIN_EPOCHS}")
+    if network.learning_rate > MAX_TRAIN_LR:
+        raise HttpError(422, "learning_rate no puede superar 1")
+    if network.epochs * dataset.total_rows > MAX_TRAIN_STEPS:
+        raise HttpError(
+            422, "El presupuesto de entrenamiento (epochs × filas) supera 5 000 000"
+        )
+
+# Funcion para asegurarnos de devolver el modelo a su estado inicial tras un fallo
+def reset_after_failure(network: Network) -> None:
+    network.state = Network.State.DRAFT
+    network.weights = None
+    network.save(update_fields=["state", "weights"])
+
+# La funcion que se encarga de hacer que el engine funcione
+def run_engine(network: Network, dataset: Dataset) -> dict:
+    config = build_model_config(network)
+    if dataset.source_type == Dataset.SourceType.CSV:
+        outcome = engine_core.train_csv(config, dataset.content, dataset.input_cols)
+    else:
+        outcome = engine_core.train_json(config, dataset.content)
+    return json.loads(outcome)
+
+# Para devolver una run de forma más rapida sin tener que estar copiando y pegando constantemente
+def as_run_out(run: Run) -> RunOut:
+    return RunOut(
+        id=run.id,
+        mse_loss=run.mse_loss,
+        r_square=run.r_square,
+        accuracy=run.accuracy,
+        dataset=RunDatasetOut(
+            id=run.dataset_id,
+            total_rows=run.total_rows,
+            input_cols=run.input_cols,
+            output_cols=run.output_cols,
+        ),
+    )
 
 
 @router.post("", response={201: NetworkOut})
@@ -85,6 +171,8 @@ def update_network(request: HttpRequest, network_id: int, payload: NetworkPatchI
     merged.update(incoming)
     validated = NetworkIn(**merged)
 
+    was_trained = network.state == Network.State.TRAINED
+
     network.name = validated.name
     network.layers = [dict(layer) for layer in validated.layers]
     network.epochs = validated.epochs
@@ -93,6 +181,8 @@ def update_network(request: HttpRequest, network_id: int, payload: NetworkPatchI
     network.training_split = validated.training_split
     network.seed = validated.seed
     network.state = Network.State.DRAFT
+    if was_trained:
+        network.weights = None
     network.save()
     return as_out(network)
 
@@ -104,3 +194,110 @@ def delete_network(request: HttpRequest, network_id: int):
         raise HttpError(409, "La red está en entrenamiento y no puede borrarse")
     network.delete()
     return 204, None
+
+# Endpoint para entrenar 
+@router.post("/{network_id}/train", response={201: RunOut})
+def train_network(request: HttpRequest, network_id: int, payload: TrainIn):
+    # Obtenemos de la db la nn y el dataset
+    network = get_own_or_404(request.auth, network_id)
+    dataset = get_own_dataset_or_404(request.auth, payload.dataset_id)
+    # Comprobamos si no se está entrenando ya
+    if network.state == Network.State.TRAINING:
+        raise HttpError(409, "Ya hay un entrenamiento en curso para esta red")
+    # Comprobamos también si las formas son válidas
+    ensure_trainable_shape(network, dataset)
+    ensure_trainable_cost(network, dataset)
+    # Iniciamos el entrenamiento
+    network.state = Network.State.TRAINING
+    network.save(update_fields=["state"])
+    # Intentamos entrenar
+    try:
+        outcome = run_engine(network, dataset)
+    except ValueError as error:
+        # Si hay algun error: Parseamos, reseteamos y devolvemos error
+        code, detail = parse_engine_error(str(error))
+        reset_after_failure(network)
+        raise HttpError(engine_error_status(code), detail)
+    except Exception:
+        # Si pasa otra cosa, reseteamos sin más
+        reset_after_failure(network)
+        raise
+
+    try:
+        # Obligamos a la atomicidad de las siguientes lineas (TODO O NADA)
+        with transaction.atomic():
+            # Guardamos el modelo entrenado
+            network.state = Network.State.TRAINED
+            network.weights = outcome["network"]
+            network.save(update_fields=["state", "weights"])
+            # Creamos un objeto de run
+            run = Run.objects.create(
+                network=network,
+                dataset_id=dataset.id,
+                total_rows=dataset.total_rows,
+                input_cols=dataset.input_cols,
+                output_cols=dataset.output_cols,
+                mse_loss=outcome["mse_loss"],
+                r_square=outcome["r_square"],
+                accuracy=outcome["accuracy"],
+            )
+    except Exception:
+        # Si hay algun error reseteamos
+        reset_after_failure(network)
+        raise
+    # Devolvemos la run
+    return as_run_out(run)
+
+# Para acceder a las runs
+@router.get("/{network_id}/runs", response=list[RunOut])
+def list_runs(request: HttpRequest, network_id: int):
+    network = get_own_or_404(request.auth, network_id)
+    return [as_run_out(run) for run in network.runs.all()]
+
+# Para hacer que el modelo haga una prediccion ya entrenado
+@router.post("/{network_id}/predict", response={200: PredictOut})
+def predict(request: HttpRequest, network_id: int, payload: PredictIn):
+    network = get_own_or_404(request.auth, network_id)
+    if network.state != Network.State.TRAINED or network.weights is None:
+        raise HttpError(409, "La red no está entrenada")
+
+    expected = network.layers[0]["size"]
+    if len(payload.input) != expected:
+        raise HttpError(422, f"El vector de entrada debe tener {expected} valores")
+    if not all(math.isfinite(value) for value in payload.input):
+        raise HttpError(422, "El vector de entrada contiene valores no finitos")
+
+    try:
+        output = engine_core.predict_json(json.dumps(network.weights), payload.input)
+    except ValueError as error:
+        code, detail = parse_engine_error(str(error))
+        raise HttpError(engine_error_status(code), detail)
+
+    return PredictOut(output=output)
+
+# Para obtener las weights de un modelo entrenado
+@router.get("/{network_id}/weights")
+def get_weights(request: HttpRequest, network_id: int):
+    network = get_own_or_404(request.auth, network_id)
+    if network.state != Network.State.TRAINED or network.weights is None:
+        raise HttpError(409, "La red no está entrenada")
+
+    if estimate_dump_bytes(network.layers) > MAX_DUMP_BYTES:
+        raise HttpError(413, "El volcado de pesos supera el límite de 50 MB")
+
+    payload = {
+        "config": {
+            "layers": [dict(layer) for layer in network.layers],
+            "epochs": network.epochs,
+            "learning_rate": network.learning_rate,
+            "loss": network.loss,
+            "training_split": network.training_split,
+            "seed": network.seed,
+        },
+        "network": network.weights,
+    }
+
+    if len(json.dumps(payload).encode("utf-8")) > MAX_DUMP_BYTES:
+        raise HttpError(413, "El volcado de pesos supera el límite de 50 MB")
+
+    return JsonResponse(payload)

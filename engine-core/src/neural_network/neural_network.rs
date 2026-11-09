@@ -11,6 +11,7 @@ pub enum Activation {
     ReLu,
     #[serde(alias = "Sigmoid", alias = "sigmoid")]
     Sigmoid,
+    #[serde(alias = "tanh")]
     Tanh,
     #[serde(
         alias = "SoftMax",
@@ -22,6 +23,7 @@ pub enum Activation {
 }
 
 impl Activation {
+    #[cfg(test)]
     fn apply(&self, input: &Matrix) -> Matrix {
         match self {
             Activation::Linear => input.clone(),
@@ -61,6 +63,46 @@ impl Activation {
                     }
                 }
                 temp.clone()
+            }
+        }
+    }
+    fn apply_in_place(&self, matrix: &mut Matrix) {
+        match self {
+            Activation::Linear => {}
+            Activation::ReLu => matrix.map_in_place(|x| if x > 0.0 { x } else { 0.0 }),
+            Activation::Sigmoid => matrix.map_in_place(|x| 1.0 / (1.0 + (-x).exp())),
+            Activation::Tanh => matrix.map_in_place(|x| x.tanh()),
+            Activation::SoftMax => {
+                let rows = matrix.rows();
+                let cols = matrix.cols();
+                let values = Rc::make_mut(&mut matrix.values);
+                let mut exps = vec![0.0; cols];
+
+                for row in 0..rows {
+                    let start = row * cols;
+                    let mut max_val = f32::NEG_INFINITY;
+
+                    for col in 0..cols {
+                        let val = values[start + col];
+                        max_val = if val > max_val { val } else { max_val }
+                    }
+
+                    let mut exps_sum = 0.0;
+
+                    for col in 0..cols {
+                        let exp_val = (values[start + col] - max_val).exp();
+                        exps[col] = exp_val;
+                        exps_sum += exp_val
+                    }
+
+                    for col in 0..cols {
+                        values[start + col] = if exps_sum > 0.0 {
+                            exps[col] / exps_sum
+                        } else {
+                            0.0
+                        };
+                    }
+                }
             }
         }
     }
@@ -281,6 +323,78 @@ impl Network {
             topology: self.topology.clone(),
         }
     }
+
+    pub fn from_send_information(info: &NetworkSendInformation) -> Result<Network, String> {
+        if info.topology.len() < 2 {
+            return Err(
+                "La topología necesita al menos una capa de entrada y una de salida".to_string(),
+            );
+        }
+
+        let mut layers = Vec::with_capacity(info.topology.len() - 1);
+        let mut weight_offset = 0;
+        let mut bias_offset = 0;
+
+        for pair in info.topology.windows(2) {
+            let input_size = pair[0].size;
+            let output_size = pair[1].size;
+            let weight_count = input_size * output_size;
+
+            let weights_slice = info
+                .weights
+                .get(weight_offset..weight_offset + weight_count)
+                .ok_or_else(|| "Los pesos no coinciden con la topología".to_string())?;
+            let bias_slice = info
+                .biases
+                .get(bias_offset..bias_offset + output_size)
+                .ok_or_else(|| "Los bias no coinciden con la topología".to_string())?;
+
+            layers.push(Layer {
+                weights: Matrix::from_slice(output_size, input_size, weights_slice)?,
+                bias: bias_slice.to_vec(),
+                activation: pair[1].activation.clone(),
+            });
+
+            weight_offset += weight_count;
+            bias_offset += output_size;
+        }
+
+        if weight_offset != info.weights.len() || bias_offset != info.biases.len() {
+            return Err("Los pesos o bias no coinciden con la topología".to_string());
+        }
+
+        Ok(Network {
+            layers,
+            topology: info.topology.clone(),
+        })
+    }
+
+    pub fn forward_vector(&self, input: &[f32]) -> Result<Vec<f32>, String> {
+        if input.is_empty() {
+            return Err("El vector de entrada no puede estar vacío".to_string());
+        }
+        if input.iter().any(|value| !value.is_finite()) {
+            return Err("El vector de entrada contiene valores no finitos".to_string());
+        }
+        if self.layers.is_empty() || self.layers[0].weights.cols() != input.len() {
+            return Err(
+                "El numero de valores del input no coincide con el numero de neuronas de la capa de entrada"
+                    .to_string(),
+            );
+        }
+
+        let input_matrix = Matrix::from_slice(input.len(), 1, input)?;
+        let (predictions, _) = self.forward(&input_matrix)?;
+
+        Ok(predictions.values.to_vec())
+    }
+
+    pub fn parameters_are_finite(&self) -> bool {
+        self.layers.iter().all(|layer| {
+            layer.weights.values.iter().all(|value| value.is_finite())
+                && layer.bias.iter().all(|value| value.is_finite())
+        })
+    }
 }
 
 impl Layer {
@@ -311,12 +425,11 @@ impl Layer {
     }
 
     pub fn forward(&self, input: &Matrix) -> Result<(Matrix, LayerCache), String> {
-        let multiplied_matrix: Matrix = self.weights.multiply(input)?;
-        let new_matrix = multiplied_matrix.broadcast_vec(&self.bias)?;
+        let mut activated = self.weights.multiply(input)?;
+        activated.add_bias_in_place(&self.bias)?;
+        self.activation.apply_in_place(&mut activated);
 
-        let activated = self.activation.apply(&new_matrix);
-
-        let layer_cache = LayerCache::new(input.clone(), new_matrix, activated.clone());
+        let layer_cache = LayerCache::new(input.clone(), activated.clone());
 
         Ok((activated, layer_cache))
     }
@@ -334,14 +447,14 @@ impl Layer {
             .activation
             .derive(&cache.post_activation, grad_from_above)?;
 
-        // delta va de derecha a izquierda, entonces hay que trasponer la matriz que va de izquierda a derecha
-        let delta_weights = delta.multiply(&cache.input_matrix.transpose())?;
+        // delta va de derecha a izquierda, entonces se multiplica por la traspuesta sin materializarla
+        let delta_weights = delta.multiply_transposed(&cache.input_matrix)?;
 
         // Obtenemos los nuevos bias
         let delta_bias = delta.row_sums();
 
         // Obtenemos la matriz ya cambiada
-        let grad_input = self.weights.transpose().multiply(&delta)?;
+        let grad_input = self.weights.transpose_multiply(&delta)?;
 
         if self.bias.len() != delta_bias.len() {
             return Err(
@@ -364,13 +477,11 @@ impl Layer {
         }
 
         // Actualizamos valores de los weights y los bias
-        self.bias = self
-            .bias
-            .iter()
-            .zip(&gradients.bias)
-            .map(|(value, delta_value)| value - delta_value * lr)
-            .collect();
-        self.weights = self.weights.sub(&gradients.weights.multiply_scalar(lr))?;
+        for (value, delta_value) in self.bias.iter_mut().zip(&gradients.bias) {
+            *value -= *delta_value * lr;
+        }
+        self.weights
+            .sub_scaled_in_place(&gradients.weights, lr)?;
 
         Ok(())
     }
@@ -378,15 +489,13 @@ impl Layer {
 #[derive(Debug)]
 pub struct LayerCache {
     input_matrix: Matrix,
-    pre_activation: Matrix,
     post_activation: Matrix,
 }
 
 impl LayerCache {
-    fn new(input_matrix: Matrix, pre_activation: Matrix, post_activation: Matrix) -> LayerCache {
+    fn new(input_matrix: Matrix, post_activation: Matrix) -> LayerCache {
         LayerCache {
             input_matrix,
-            pre_activation,
             post_activation,
         }
     }
@@ -398,7 +507,7 @@ pub struct LayerTopology {
     pub activation: Activation,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkSendInformation {
     pub weights: Vec<f32>,
     pub biases: Vec<f32>,
@@ -597,7 +706,7 @@ impl MetricFn for Accuracy {
             // Clasificación Multiclase (Entre más de 2 cosas)
             for sample_index in 0..total_samples {
                 let start_index = sample_index * total_columns;
-                let end_index = start_index * total_columns;
+                let end_index = start_index + total_columns;
 
                 let row_predicted_probabilities = &predicted.values[start_index..end_index];
                 let row_expected = &expected.values[start_index..end_index];
@@ -701,7 +810,6 @@ mod test_activations_and_network {
             assert_eq!(&*activated.values, &[2.5, 1.0]);
 
             assert_eq!(&*cache.input_matrix.values, &[2.0, 1.0]);
-            assert_eq!(&*cache.pre_activation.values, &[2.5, 1.0]);
             assert_eq!(&*cache.post_activation.values, &[2.5, 1.0]);
         }
     }
@@ -897,7 +1005,7 @@ mod test_activations_and_network {
 
         #[test]
         fn softmax_backward_is_rejected() {
-            let mut net = Network {
+            let net = Network {
                 layers: vec![Layer {
                     weights: Matrix::new(1, 1, vec![1.0]).unwrap(),
                     bias: vec![0.0],

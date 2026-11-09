@@ -1,8 +1,10 @@
 use crate::neural_network::neural_network::*;
 use crate::nn_config::csv_to_json::process_csv;
-use crate::Matrix;
-use pyo3::{exceptions::PyValueError, prelude::*};
-use rand::{rng, seq::SliceRandom, RngExt};
+use crate::{EngineError, Matrix};
+use pyo3::prelude::*;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
 // Formato correcto para el JSON de model_data:
@@ -11,14 +13,29 @@ use serde::{Deserialize, Serialize};
 //   "loss_fn": "mse_loss",
 //   "lr": 0.01,
 //   "epochs": 100,
-//   "training_split": 0.8
+//   "training_split": 0.8,
+//   "seed": 42
 // }
+
+#[derive(Debug, Serialize)]
+pub struct SplitInfo {
+    pub train_rows: usize,
+    pub test_rows: usize,
+}
 
 #[derive(Debug, Serialize)]
 pub struct TrainingOutcome {
     network: NetworkSendInformation,
     mse_loss: f32,
-    r_square_loss: f32,
+    r_square: f32,
+    accuracy: f32,
+    split: SplitInfo,
+}
+
+#[derive(Debug, Serialize)]
+struct MetricsOut {
+    mse_loss: f32,
+    r_square: f32,
     accuracy: f32,
 }
 
@@ -30,6 +47,7 @@ struct NeuralNetworkIn {
     lr: f32,
     epochs: usize,
     training_split: f32,
+    seed: u64,
 }
 
 #[derive(Deserialize, Debug)]
@@ -46,29 +64,35 @@ pub enum TrainingSource {
     },
 }
 
-pub fn create_and_train(
-    model_data: String,
-    source_data: TrainingSource,
-) -> Result<TrainingOutcome, String> {
-    // Deserializar configuración del modelo
-    let config: NeuralNetworkIn = serde_json::from_str(&model_data)
-        .map_err(|e| format!("Error al deserializar el json del modelo: {}", e))?;
+fn loss_from_name(name: &str) -> Result<Box<dyn LossFn>, EngineError> {
+    match name {
+        "mse_loss" | "MSELoss" => Ok(Box::from(MSELoss {})),
+        "bce_loss" | "BCELoss" => Ok(Box::from(BCELoss {})),
+        "mae_loss" | "MAELoss" => Ok(Box::from(MAELoss {})),
+        other => Err(EngineError::Config(format!(
+            "Función de pérdida no admitida: {other}"
+        ))),
+    }
+}
 
-    // Validar función de pérdida
-    let loss_fn: Box<dyn LossFn> = match config.loss_fn.as_str() {
-        "mse_loss" | "MSELoss" => Box::from(MSELoss {}),
-        "bce_loss" | "BCELoss" => Box::from(BCELoss {}),
-        "mae_loss" | "MAELoss" => Box::from(MAELoss {}),
-        _ => return Err("Función no admitida".to_string()),
-    };
+fn ensure_trainable(topology: &[LayerTopology]) -> Result<(), EngineError> {
+    if topology
+        .iter()
+        .skip(1)
+        .any(|layer| layer.activation == Activation::SoftMax)
+    {
+        return Err(EngineError::SoftmaxNotImplemented);
+    }
+    Ok(())
+}
 
-    let topology = config.topology;
-    let mut rng = rng();
-    let mut model = Network::random(&mut rng, &topology)?;
-
+fn parse_training_data(source_data: TrainingSource) -> Result<Vec<(Vec<f32>, Vec<f32>)>, EngineError> {
     let training_data: TrainingDataIn = match source_data {
-        TrainingSource::Json(json_str) => serde_json::from_str(&json_str)
-            .map_err(|e| format!("Error al analizar los datos de entrenamiento JSON: {}", e))?,
+        TrainingSource::Json(json_str) => serde_json::from_str(&json_str).map_err(|e| {
+            EngineError::Dataset(format!(
+                "Error al analizar los datos de entrenamiento JSON: {e}"
+            ))
+        })?,
 
         TrainingSource::Csv {
             content,
@@ -81,105 +105,228 @@ pub fn create_and_train(
     };
 
     if training_data.inputs.len() != training_data.expects.len() {
-        return Err("Número de casos de entrada no coincide con los de salida".to_string());
+        return Err(EngineError::Dataset(
+            "Número de casos de entrada no coincide con los de salida".to_string(),
+        ));
     }
 
-    let split_point: usize = (training_data.expects.len() as f32 * config.training_split) as usize;
+    Ok(training_data
+        .inputs
+        .into_iter()
+        .zip(training_data.expects)
+        .collect())
+}
 
-    let mut indexes_list: Vec<usize> = (0..training_data.expects.len()).collect();
+pub fn create_and_train(
+    model_data: String,
+    source_data: TrainingSource,
+) -> Result<TrainingOutcome, EngineError> {
+    let config: NeuralNetworkIn = serde_json::from_str(&model_data)
+        .map_err(|e| EngineError::Config(format!("Error al deserializar el json del modelo: {e}")))?;
+
+    let loss_fn = loss_from_name(&config.loss_fn)?;
+    ensure_trainable(&config.topology)?;
+
+    let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
+    let mut model = Network::random(&mut rng, &config.topology).map_err(EngineError::Config)?;
+
+    let data = parse_training_data(source_data)?;
+
+    let split_point = (data.len() as f32 * config.training_split) as usize;
+    if split_point == 0 || split_point >= data.len() {
+        return Err(EngineError::EmptySplit);
+    }
+
+    let mut indexes_list: Vec<usize> = (0..data.len()).collect();
     indexes_list.shuffle(&mut rng);
 
-    let practice_indexes = &indexes_list[..split_point];
-    let test_indexes = &indexes_list[split_point..];
+    let (train_indexes, test_indexes) = indexes_list.split_at(split_point);
 
-    let mut practice_data: Vec<(&Vec<f32>, &Vec<f32>)> = practice_indexes
+    let mut practice_data: Vec<(&Vec<f32>, &Vec<f32>)> = train_indexes
         .iter()
-        .map(|&i| (&training_data.inputs[i], &training_data.expects[i]))
+        .map(|&i| (&data[i].0, &data[i].1))
         .collect();
 
     let test_data: Vec<(&Vec<f32>, &Vec<f32>)> = test_indexes
         .iter()
-        .map(|&i| (&training_data.inputs[i], &training_data.expects[i]))
+        .map(|&i| (&data[i].0, &data[i].1))
         .collect();
 
-    let test_interval = match test_data.len() {
-        0..=4999 => 1,
-        5000..=24999 => 3,
-        25000..=49999 => 5,
-        _ => 20,
-    };
-
-    // Entrenamiento del modelo
     for epoch in 0..config.epochs {
         practice_data.shuffle(&mut rng);
         for (input, target) in practice_data.iter() {
-            model.train(input, target, loss_fn.as_ref(), config.lr)?;
+            model
+                .train(input, target, loss_fn.as_ref(), config.lr)
+                .map_err(EngineError::Shape)?;
         }
 
-        if epoch % test_interval == 0 {
-            let _epoch_loss = evaluate_test_loss(&mut model, &test_data, loss_fn.as_ref())?;
+        if !model.parameters_are_finite() {
+            return Err(EngineError::Divergence(epoch + 1));
         }
     }
 
-    // Testeo final
-    let (mse_loss, r_square_loss, accuracy) = evaluate_training_results(&mut model, &test_data)?;
+    let (mse_loss, r_square, accuracy) = evaluate_training_results(&model, &test_data)?;
 
     Ok(TrainingOutcome {
         network: model.to_layer_send_information(),
         mse_loss,
-        r_square_loss,
+        r_square,
+        accuracy,
+        split: SplitInfo {
+            train_rows: split_point,
+            test_rows: data.len() - split_point,
+        },
+    })
+}
+
+fn evaluate_training_results(
+    model: &Network,
+    test_data: &[(&Vec<f32>, &Vec<f32>)],
+) -> Result<(f32, f32, f32), EngineError> {
+    if test_data.is_empty() {
+        return Err(EngineError::Dataset(
+            "No hay ejemplos de test para evaluar".to_string(),
+        ));
+    }
+
+    let mut mse_mean: f32 = 0.0;
+    let mut examples_seen: usize = 0;
+    let mut ss_res: f32 = 0.0;
+    let mut expected_mean: f32 = 0.0;
+    let mut expected_m2: f32 = 0.0;
+    let mut expected_count: usize = 0;
+    let mut correct_predictions: usize = 0;
+
+    for (input, target) in test_data.iter() {
+        let input_matrix = Matrix::from_slice(input.len(), 1, input).map_err(EngineError::Shape)?;
+        let (result, _) = model.forward(&input_matrix).map_err(EngineError::Shape)?;
+        let expected_matrix =
+            Matrix::from_slice(target.len(), 1, target).map_err(EngineError::Shape)?;
+
+        if result.rows() != target.len() {
+            return Err(EngineError::Shape(
+                "El numero de valores del output no coincide con el numero de neuronas de la capa de salida"
+                    .to_string(),
+            ));
+        }
+
+        let example_mse = MSELoss
+            .get_loss(&result, &expected_matrix)
+            .map_err(EngineError::Shape)?;
+
+        if !example_mse.is_finite() {
+            return Err(EngineError::Unexpected(
+                "La pérdida de test dejó de ser finita".to_string(),
+            ));
+        }
+
+        mse_mean += (example_mse - mse_mean) / (examples_seen + 1) as f32;
+        examples_seen += 1;
+
+        for (predicted_value, expected_value) in
+            result.values.iter().zip(expected_matrix.values.iter())
+        {
+            let residual = predicted_value - expected_value;
+            ss_res += residual * residual;
+
+            expected_count += 1;
+            let delta = expected_value - expected_mean;
+            expected_mean += delta / expected_count as f32;
+            expected_m2 += delta * (expected_value - expected_mean);
+        }
+
+        correct_predictions += classify(&result.values, target);
+    }
+
+    let examples = test_data.len() as f32;
+
+    let r_square = if expected_m2 == 0.0 {
+        if ss_res == 0.0 {
+            1.0
+        } else {
+            0.0
+        }
+    } else {
+        1.0 - ss_res / expected_m2
+    };
+
+    let accuracy = correct_predictions as f32 / examples;
+
+    Ok((mse_mean, r_square, accuracy))
+}
+
+fn classify(predicted: &[f32], target: &[f32]) -> usize {
+    if target.len() == 1 {
+        let predicted_class = predicted[0] >= 0.5;
+        let expected_class = target[0] >= 0.5;
+        usize::from(predicted_class == expected_class)
+    } else {
+        usize::from(argmax(predicted) == argmax(target))
+    }
+}
+
+fn argmax(values: &[f32]) -> usize {
+    let mut best_index = 0;
+    let mut best_value = f32::NEG_INFINITY;
+
+    for (index, value) in values.iter().enumerate() {
+        if *value > best_value {
+            best_value = *value;
+            best_index = index;
+        }
+    }
+
+    best_index
+}
+
+fn predict_network(network_json: &str, input: &[f32]) -> Result<Vec<f32>, EngineError> {
+    let info: NetworkSendInformation = serde_json::from_str(network_json)
+        .map_err(|e| EngineError::Unexpected(format!("Error al deserializar la red: {e}")))?;
+
+    let model = Network::from_send_information(&info).map_err(EngineError::Unexpected)?;
+
+    let output = model.forward_vector(input).map_err(EngineError::Shape)?;
+
+    if output.iter().any(|value| !value.is_finite()) {
+        return Err(EngineError::Shape(
+            "La predicción contiene valores no finitos".to_string(),
+        ));
+    }
+
+    Ok(output)
+}
+
+fn evaluate_network(network_json: &str, dataset_json: &str) -> Result<MetricsOut, EngineError> {
+    let info: NetworkSendInformation = serde_json::from_str(network_json)
+        .map_err(|e| EngineError::Unexpected(format!("Error al deserializar la red: {e}")))?;
+
+    let model = Network::from_send_information(&info).map_err(EngineError::Unexpected)?;
+
+    let pairs = parse_training_data(TrainingSource::Json(dataset_json.to_string()))?;
+
+    if pairs.is_empty() {
+        return Err(EngineError::Dataset(
+            "El dataset no contiene filas".to_string(),
+        ));
+    }
+
+    let data: Vec<(&Vec<f32>, &Vec<f32>)> = pairs.iter().map(|(input, target)| (input, target)).collect();
+
+    let (mse_loss, r_square, accuracy) = evaluate_training_results(&model, &data)?;
+
+    Ok(MetricsOut {
+        mse_loss,
+        r_square,
         accuracy,
     })
 }
 
-fn evaluate_test_loss(
-    model: &mut Network,
-    data: &[(&Vec<f32>, &Vec<f32>)],
-    loss_fn: &dyn LossFn,
-) -> Result<f32, String> {
-    let mut max_error: f32 = 0.0;
-
-    for (input, target) in data.iter() {
-        let input_matrix = Matrix::from_slice(input.len(), 1, input)?;
-        let (result, _) = model.forward(&input_matrix)?;
-
-        let expected_matrix = Matrix::from_slice(target.len(), 1, target)?;
-        let error: f32 = loss_fn.get_loss(&result, &expected_matrix)?;
-
-        max_error = max_error.max(error);
-    }
-
-    Ok(max_error)
-}
-
-fn evaluate_training_results(
-    model: &mut Network,
-    test_data: &[(&Vec<f32>, &Vec<f32>)],
-) -> Result<(f32, f32, f32), String> {
-    let mut max_mse_error: f32 = 0.0;
-    let mut r_square_error = 0.0;
-    let mut accuracy = 0.0;
-    for (input, target) in test_data.iter() {
-        let input_matrix = Matrix::from_slice(input.len(), 1, input)?;
-        let (result, _) = model.forward(&input_matrix)?;
-
-        let expected_matrix = Matrix::from_slice(target.len(), 1, target)?;
-        let error: f32 = MSELoss.get_loss(&result, &expected_matrix)?;
-
-        max_mse_error = max_mse_error.max(error);
-        r_square_error = RSquare.calculate(&result, &expected_matrix)?;
-        accuracy = Accuracy.calculate(&result, &expected_matrix)?;
-    }
-
-    Ok((max_mse_error, r_square_error, accuracy))
-}
-
 #[pyfunction]
 pub fn train_json(model_data: String, training_data: String) -> PyResult<String> {
-    let outcome = create_and_train(model_data, TrainingSource::Json(training_data))
-        .map_err(PyValueError::new_err)?;
+    let outcome = create_and_train(model_data, TrainingSource::Json(training_data))?;
 
-    serde_json::to_string(&outcome).map_err(|err| PyValueError::new_err(err.to_string()))
+    serde_json::to_string(&outcome)
+        .map_err(|e| EngineError::Unexpected(e.to_string()).into_py_err())
 }
 
 #[pyfunction]
@@ -194,150 +341,290 @@ pub fn train_csv(
             content: csv_content,
             input_columns,
         },
-    )
-    .map_err(PyValueError::new_err)?;
+    )?;
 
-    serde_json::to_string(&outcome).map_err(|err| PyValueError::new_err(err.to_string()))
+    serde_json::to_string(&outcome)
+        .map_err(|e| EngineError::Unexpected(e.to_string()).into_py_err())
 }
 
 #[pyfunction]
 pub fn parse_csv(csv_content: &str, input_columns: usize) -> PyResult<Vec<(Vec<f32>, Vec<f32>)>> {
-    process_csv(csv_content, input_columns).map_err(PyValueError::new_err)
+    Ok(process_csv(csv_content, input_columns)?)
+}
+
+#[pyfunction]
+pub fn predict_json(network_json: String, input: Vec<f32>) -> PyResult<Vec<f32>> {
+    Ok(predict_network(&network_json, &input)?)
+}
+
+#[pyfunction]
+pub fn evaluate_json(network_json: String, dataset_json: String) -> PyResult<String> {
+    let metrics = evaluate_network(&network_json, &dataset_json)?;
+
+    serde_json::to_string(&metrics)
+        .map_err(|e| EngineError::Unexpected(e.to_string()).into_py_err())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const XOR_INPUTS: &str = r#"{
+        "inputs": [
+            [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
+            [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
+            [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
+            [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]
+        ],
+        "expects": [
+            [0.0], [1.0], [1.0], [0.0],
+            [0.0], [1.0], [1.0], [0.0],
+            [0.0], [1.0], [1.0], [0.0],
+            [0.0], [1.0], [1.0], [0.0]
+        ]
+    }"#;
+
+    fn xor_config(seed: u64, epochs: usize, training_split: f32) -> String {
+        format!(
+            r#"{{
+                "layers": [
+                    {{ "size": 2, "activation": "Linear" }},
+                    {{ "size": 4, "activation": "Tanh" }},
+                    {{ "size": 1, "activation": "Tanh" }}
+                ],
+                "loss_fn": "mse_loss",
+                "lr": 0.1,
+                "epochs": {epochs},
+                "training_split": {training_split},
+                "seed": {seed}
+            }}"#
+        )
+    }
+
     #[test]
     fn test_create_and_train_xor_json() {
-        // El json que pasara el backend a rust:
-        let model_config_json = r#"{
-            "layers": [
-                { "size": 2, "activation": "Linear" },
-                { "size": 4, "activation": "Tanh" },
-                { "size": 1, "activation": "Tanh" }
-            ],
-            "loss_fn": "mse_loss",
-            "lr": 0.1,
-            "epochs": 500,
-            "training_split": 1.0
-        }"#
-        .to_string();
+        let result = create_and_train(xor_config(42, 500, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()));
 
-        // El json de datos que pasara el backend a rust
-        let training_data_json = r#"{
-            "inputs": [
-                [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
-                [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
-                [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0],
-                [0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]
-            ],
-            "expects": [
-                [0.0], [1.0], [1.0], [0.0],
-                [0.0], [1.0], [1.0], [0.0],
-                [0.0], [1.0], [1.0], [0.0],
-                [0.0], [1.0], [1.0], [0.0]
-            ]
-        }"#
-        .to_string();
-
-        let source = TrainingSource::Json(training_data_json);
-
-        let result = create_and_train(model_config_json, source);
-
-        assert!(
-            result.is_ok(),
-            "El entrenamiento falló con el error: {:?}",
-            result.err()
-        );
-
-        let outcome = result.unwrap();
-
-        println!(
-            "Test JSON exitoso. Pérdida final obtenida: {}",
-            outcome.mse_loss
-        );
-
-        assert!(
-            !outcome.network.topology.is_empty(),
-            "La red neuronal devuelta no tiene capas"
-        );
+        let outcome = result.expect("El entrenamiento falló");
+        assert!(!outcome.network.topology.is_empty());
+        assert_eq!(outcome.split.train_rows, 12);
+        assert_eq!(outcome.split.test_rows, 4);
+        assert!(outcome.mse_loss.is_finite());
+        assert!(outcome.r_square.is_finite());
+        assert!(outcome.accuracy.is_finite());
     }
 
     #[test]
     fn test_create_and_train_xor_csv() {
-        let model_config_json = r#"{
-            "layers": [
-                { "size": 2, "activation": "Linear" },
-                { "size": 4, "activation": "Tanh" },
-                { "size": 1, "activation": "Tanh" }
-            ],
-            "loss_fn": "mse_loss",
-            "lr": 0.1,
-            "epochs": 500,
-            "training_split": 1.0
-        }"#
-        .to_string();
-
-        let csv_content = r#"x1,x2,y
-            0.0,0.0,0.0
+        let csv_content = "0.0,0.0,0.0
             0.0,1.0,1.0
             1.0,0.0,1.0
             1.0,1.0,0.0
             0.0,0.0,0.0
             0.0,1.0,1.0
             1.0,0.0,1.0
-            1.0,1.0,0.0"#
-            .to_string();
+            1.0,1.0,0.0";
 
         let source = TrainingSource::Csv {
-            content: csv_content,
+            content: csv_content.to_string(),
             input_columns: 2,
         };
 
-        let result = create_and_train(model_config_json, source);
+        let outcome = create_and_train(xor_config(42, 100, 0.8), source)
+            .expect("El entrenamiento con CSV falló");
 
-        assert!(
-            result.is_ok(),
-            "El entrenamiento con CSV falló con el error: {:?}",
-            result.err()
-        );
-
-        let outcome = result.unwrap();
-        println!(
-            "Test CSV exitoso. Pérdida final obtenida: {}",
-            outcome.mse_loss
-        );
+        assert_eq!(outcome.split.train_rows, 6);
+        assert_eq!(outcome.split.test_rows, 2);
+        assert!(outcome.mse_loss.is_finite());
     }
 
     #[test]
     fn test_create_and_train_dimension_mismatch() {
-        // Test para comprobar que el validador de dimensiones funciona correctamente
         let model_config_json = r#"{
             "layers": [{ "size": 2, "activation": "Tanh" }],
             "loss_fn": "mse_loss",
             "lr": 0.01,
             "epochs": 1,
-            "training_split": 0.8
+            "training_split": 0.8,
+            "seed": 1
         }"#
         .to_string();
 
-        // Enviamos 2 entradas pero solo 1 salida esperada (provoca error)
         let training_data_json = r#"{
             "inputs": [[0.0, 0.0], [0.1, 0.2]],
             "expects": [[1.0]]
         }"#
         .to_string();
 
-        let source = TrainingSource::Json(training_data_json);
+        let result = create_and_train(model_config_json, TrainingSource::Json(training_data_json));
 
-        let result = create_and_train(model_config_json, source);
+        match result {
+            Err(EngineError::Config(message)) => {
+                assert_eq!(
+                    message,
+                    "La topología necesita al menos una capa de entrada y una de salida"
+                );
+            }
+            other => panic!("Se esperaba EngineError::Config, llegó: {other:?}"),
+        }
+    }
 
-        assert!(result.is_err());
-        assert_eq!(
-            result.err().unwrap(),
-            "La topología necesita al menos una capa de entrada y una de salida"
-        );
+    #[test]
+    fn test_seed_is_required() {
+        let model_config_json = r#"{
+            "layers": [
+                { "size": 2, "activation": "Linear" },
+                { "size": 1, "activation": "Tanh" }
+            ],
+            "loss_fn": "mse_loss",
+            "lr": 0.1,
+            "epochs": 1,
+            "training_split": 0.8
+        }"#
+        .to_string();
+
+        let result = create_and_train(model_config_json, TrainingSource::Json(XOR_INPUTS.to_string()));
+
+        match result {
+            Err(EngineError::Config(message)) => assert!(message.contains("seed")),
+            other => panic!("Se esperaba EngineError::Config, llegó: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_same_seed_is_deterministic() {
+        let first = create_and_train(xor_config(123, 30, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("Primera corrida falló");
+        let second = create_and_train(xor_config(123, 30, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("Segunda corrida falló");
+
+        let first_json = serde_json::to_string(&first).unwrap();
+        let second_json = serde_json::to_string(&second).unwrap();
+
+        assert_eq!(first_json, second_json);
+    }
+
+    #[test]
+    fn test_different_seeds_differ() {
+        let first = create_and_train(xor_config(1, 5, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("Primera corrida falló");
+        let second = create_and_train(xor_config(2, 5, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("Segunda corrida falló");
+
+        assert_ne!(first.network.weights, second.network.weights);
+    }
+
+    #[test]
+    fn test_empty_split_is_rejected() {
+        let no_test = create_and_train(xor_config(1, 1, 1.0), TrainingSource::Json(XOR_INPUTS.to_string()));
+        assert!(matches!(no_test, Err(EngineError::EmptySplit)));
+
+        let four_rows = r#"{
+            "inputs": [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]],
+            "expects": [[0.0], [1.0], [1.0], [0.0]]
+        }"#
+        .to_string();
+
+        let no_train = create_and_train(xor_config(1, 1, 0.1), TrainingSource::Json(four_rows));
+        assert!(matches!(no_train, Err(EngineError::EmptySplit)));
+    }
+
+    #[test]
+    fn test_softmax_topology_is_rejected() {
+        let model_config_json = xor_config(1, 1, 0.8).replace("\"Tanh\" }", "\"SoftMax\" }");
+
+        let result = create_and_train(model_config_json, TrainingSource::Json(XOR_INPUTS.to_string()));
+
+        assert!(matches!(result, Err(EngineError::SoftmaxNotImplemented)));
+    }
+
+    #[test]
+    fn test_divergence_is_detected() {
+        let model_config_json = r#"{
+            "layers": [
+                { "size": 1, "activation": "Linear" },
+                { "size": 1, "activation": "Linear" }
+            ],
+            "loss_fn": "mse_loss",
+            "lr": 100.0,
+            "epochs": 200,
+            "training_split": 0.8,
+            "seed": 1
+        }"#
+        .to_string();
+
+        let training_data_json = r#"{
+            "inputs": [[1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0], [1.0]],
+            "expects": [[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]
+        }"#
+        .to_string();
+
+        let result = create_and_train(model_config_json, TrainingSource::Json(training_data_json));
+
+        match result {
+            Err(EngineError::Divergence(epoch)) => assert!(epoch >= 1),
+            other => panic!("Se esperaba EngineError::Divergence, llegó: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_evaluate_json_reproduces_run_metrics() {
+        let model_config_json = xor_config(7, 20, 0.8);
+        let identical_rows = r#"{
+            "inputs": [
+                [0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0],
+                [0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0]
+            ],
+            "expects": [
+                [1.0], [1.0], [1.0], [1.0], [1.0],
+                [1.0], [1.0], [1.0], [1.0], [1.0]
+            ]
+        }"#
+        .to_string();
+
+        let outcome = create_and_train(model_config_json, TrainingSource::Json(identical_rows.clone()))
+            .expect("El entrenamiento falló");
+
+        let network_json = serde_json::to_string(&outcome.network).unwrap();
+        let metrics = evaluate_network(&network_json, &identical_rows).expect("La evaluación falló");
+
+        assert_eq!(metrics.mse_loss, outcome.mse_loss);
+        assert_eq!(metrics.r_square, outcome.r_square);
+        assert_eq!(metrics.accuracy, outcome.accuracy);
+    }
+
+    #[test]
+    fn test_predict_roundtrip() {
+        let outcome = create_and_train(xor_config(42, 100, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("El entrenamiento falló");
+
+        let network_json = serde_json::to_string(&outcome.network).unwrap();
+
+        for input in [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]] {
+            let output = predict_network(&network_json, &input).expect("La predicción falló");
+            assert_eq!(output.len(), 1);
+            assert!(output[0].is_finite());
+        }
+    }
+
+    #[test]
+    fn test_predict_rejects_bad_input() {
+        let outcome = create_and_train(xor_config(42, 5, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("El entrenamiento falló");
+        let network_json = serde_json::to_string(&outcome.network).unwrap();
+
+        assert!(predict_network(&network_json, &[1.0]).is_err());
+        assert!(predict_network(&network_json, &[f32::NAN, 0.0]).is_err());
+    }
+
+    #[test]
+    fn test_from_send_information_rejects_truncated_weights() {
+        let outcome = create_and_train(xor_config(42, 5, 0.8), TrainingSource::Json(XOR_INPUTS.to_string()))
+            .expect("El entrenamiento falló");
+
+        let mut info = outcome.network;
+        info.weights.pop();
+
+        assert!(Network::from_send_information(&info).is_err());
     }
 }

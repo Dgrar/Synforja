@@ -96,19 +96,19 @@ Implementado: schema NinjaAPI con throttling global (anon 10/s, auth 100/m) y
 routers `users` (`/api/users`), `networks` (`/api/networks`, CRUD JWT + RF-18) y
 `datasets` (`/api/datasets`, CRUD JWT con límites y reporte 1-based, §14.21),
 montados en `core/api.py` (+ `/api/test`). Auth verificado e2e; routers verificados
-por suite (112 tests, hasher MD5 §14.22).
+por suite (160 tests, hasher MD5 §14.22).
 
-Pendiente (F5b): `POST /networks/{id}/train`, `POST /networks/{id}/predict`,
-`GET /networks/{id}/runs`. Errores `{ "detail": ... }` (reporte de dataset:
-`{"detail": {"violations", "total"}}`), schemas Ninja/Pydantic. **Sync** por ahora;
-async/celery solo si una fase lo exige.
+F5b implementado y cerrado (spec 001, 08-11-2026, §14.26): `POST /networks/{id}/train`
+(one-shot, 201 + run), `POST /networks/{id}/predict` (`{"input": [...]}` →
+`{"output": [...]}`), `GET /networks/{id}/runs` (desc con snapshot),
+`GET /networks/{id}/weights` (`{config, network}`, ≤ 50 MB). Errores `{ "detail": ... }`
+(reporte de dataset: `{"detail": {"violations", "total"}}`), schemas Ninja/Pydantic,
+validaciones 404/409/422 y fallo del motor → limpieza a `draft` sin pesos ni run.
+**Sync** por ahora; async/celery solo si una fase lo exige. e2e real 19/19 PASS.
 
-Especs aprobadas para F5b (08-11-2026): **001** entrenamiento one-shot / runs /
-volcado de pesos JSON (≤ 50 MB) / predict de un vector (topes de coste:
-epochs ≤ 10 000, lr ≤ 1, presupuesto epochs × filas ≤ 5 M, sin tope de reloj —
-decisión del dueño) y **002** streaming del entrenamiento (la petición emite el
-stream; eventos de train+test por época; cancelación al cortar la conexión sin
-run; curva no persistida). Especifican QUÉ; el plan/graf descenderá a CÓMO.
+Spec **002** aprobada (streaming SSE: la petición emite train+test por época;
+cancelación al cortar la conexión sin run; curva no persistida) — por ejecutar
+tras cerrar 001.
 
 ## 9. Motor Rust (`engine-core`)
 Responsabilidad única: **matemática numérica de la red**.
@@ -118,11 +118,13 @@ Responsabilidad única: **matemática numérica de la red**.
 - Pérdidas: MSE, BCE, MAE (`LossFn`). Métricas: R², Accuracy.
 - `f32` LOCKED. Sin I/O, HTTP, DB ni lógica web en este crate.
 - Tests de integración numérica: XOR, seno (multi-semilla), diabetes.
-- Errores hoy devueltos como `String`; refactor a `thiserror` pendiente (§14.18).
+- Errores: `EngineError` (errors.rs) con códigos `config|shape|empty_split|divergence|softmax|dataset|unexpected`
+  expuestos a Python como `ValueError("engine::<código>: <mensaje>")`; el lazo numérico
+  interno aún usa `Result<_, String>` en algunos métodos y se mapea en la frontera.
 
 ## 10. Puente PyO3
 - Crate como **extensión de Python** (`cdylib`), módulo `engine_core._engine`.
-- Exposición: `train_json`, `train_csv`, `parse_csv`. Errores → `PyValueError`.
+- Exposición: `train_json`, `train_csv`, `parse_csv`, `predict_json`, `evaluate_json`. Errores → `PyValueError` con prefijo `engine::`.
 - **Verificado**: PyO3 0.30.1 ↔ CPython 3.14.4 GIL-enabled, ABI `cp314-win_amd64`,
   **sin `abi3`**. Rust 1.98.1 ≥ MSRV 1.85. `maturin develop` (1.16.0) instala
   `synforja-engine` editable; XOR entrenado desde Python predice correctamente.
@@ -131,6 +133,7 @@ Responsabilidad única: **matemática numérica de la red**.
 ```powershell
 cargo build                                   # workdir: engine-core
 cargo test                                    # workdir: engine-core
+cargo test --release --test train_bench -- --ignored --nocapture   # bench µs/paso
 
 cmd /c ".venv\Scripts\maturin.exe develop"            # instalar extensión (raíz del repo)
 cmd /c ".venv\Scripts\maturin.exe develop --release"
@@ -150,7 +153,7 @@ rav run fe_install / fe_start   # cuando exista frontend/
 | F3 — Backprop | pérdidas, regla de la cadena, `backward` | **HECHA** |
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
 | F5a — CRUD | modelos `Network`/`Dataset` + routers Ninja | **HECHA** (spec 000 completa: A+B+C+D, 112 tests) |
-| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | pendiente (topes de red ya en F5a, §14.20) |
+| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (spec 001 cerrada, §14.26) |
 | F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | pendiente |
 
 ## 13. Definition of Done
@@ -173,16 +176,21 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
 8. Entrenamiento: **síncrono**, con límite de tamaño de red y épocas.
 9. Datasets: JSON y CSV, validados con Pydantic.
 10. PyO3 0.30.1 ↔ CPython 3.14.4 verificado; sin `abi3`.
-11. `import engine_core` expone `train_json`, `train_csv`, `parse_csv` (verificado).
+11. `import engine_core` expone `train_json`, `train_csv`, `parse_csv`, `predict_json`, `evaluate_json` (verificado).
 12. **Auth oficial**: register/login JWT (django-ninja-jwt), rate-limiting por IP con Redis,
     login anti user-enumeration (fake hash check). Frontend tendrá auth.
 13. **Redis mantenido** como cache/rate-limit (justificación: throttling y locks de auth).
 14. Frontend será Next.js, **puerto 3000** (CORS actual `:5173` sobra, corregir en F6).
-15. **Semilla obligatoria** en el contrato JSON del modelo (ChaCha8); `rng()` sin semilla
-    solo como fallback no determinista hasta F5b.
+15. **Semilla obligatoria** en el contrato JSON del modelo (ChaCha8): implementada en
+    F5b (campo obligatorio, `seed_from_u64` para init y shuffle; sin fallback expuesto).
 16. **SGD puro** (ejemplo a ejemplo), **sin batches**; batch_size fuera del modelo de dominio.
-17. **Rayon aplazado**: se activa solo si el entrenamiento vía API es lento.
-18. **thiserror** en el motor: refactor de errores `String` → enums tipados.
+17. **Rayon NO se activa** (decisión 08-11-2026): con la referencia real de RNF-1 midiendo
+    334,7 s, el dueño eligió optimizar el lazo escalar. Resultado: 124,8 s (2,68×),
+    mediante matmul especializado para vector columna, backward sin trasposiciones
+    materializadas y activación/bias/update in-place; la aritmética y el orden de suma
+    no cambian (misma convergencia bit a bit). Bench: `engine-core/tests/train_bench.rs`.
+18. **thiserror** en el motor: `EngineError` implementado en la frontera (001 A);
+    el refactor interno completo de `String` sigue pendiente.
 19. Router `users` montado en `core/api.py` (`/api/users`); rate-limit de auth con
     `cache.set(timeout=int(timedelta.total_seconds()))` — verificado e2e con servidor real.
     Login responde `{refresh_token, access_token}` y register `{access, refresh}` (unificar
@@ -219,6 +227,14 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     general (solo `manage.py test core.perf`); suite entera = 112 tests ~3,7 s.
 25. **RF-16 verificado** (bloque D): crear red → matar `runserver` → arrancar →
     GET 200; cierre de F5a con e2e de 19 comprobaciones PASS (CU-1..CU-6).
+26. **F5b implementado** (08-11-2026, spec 001): train/runs/predict/weights con
+    suite de **160 tests** y e2e real **19/19 PASS** (incluye reinicio → pesos y runs
+    persisten, RF-20). Contrato del motor: seed obligatoria, CSV sin cabecera,
+    errores tipados con prefijo `engine::`, metrics con `split`, `predict_json`/
+    `evaluate_json`; editar una red `trained` limpia pesos y conserva runs.
+    Benchmarks release: RNF-3 runs p95 **18,0 ms** ✓; RNF-1 referencia
+    5 000×7×1 000 epochs → 334,7 s ✗ inicial, optimizado el lazo escalar (§14.17)
+    a **124,8–127,1 s ✓** (mse 3,6e-13, r² 1,0, convergencia idéntica). Fase cerrada.
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod

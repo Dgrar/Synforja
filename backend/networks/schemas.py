@@ -47,6 +47,33 @@ class NetworkOut(Schema):
     seed: int
 
 
+class RunDatasetOut(Schema):
+    id: int
+    total_rows: int
+    input_cols: int
+    output_cols: int
+
+
+class RunOut(Schema):
+    id: int
+    mse_loss: float
+    r_square: float
+    accuracy: float
+    dataset: RunDatasetOut
+
+
+class TrainIn(Schema):
+    dataset_id: int = Field(gt=0)
+
+
+class PredictIn(Schema):
+    input: list[float] = Field(min_length=1)
+
+
+class PredictOut(Schema):
+    output: list[float]
+
+
 class NetworkPatchIn(Schema):
     name: Optional[str] = Field(default=None, max_length=100)
     layers: Optional[list[LayerIn]] = None
