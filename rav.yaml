@@ -1,7 +1,7 @@
 name: Synforja
 version: "1.0.0"
 scripts:
-  be_start: cd backend && py manage.py runserver
+  be_start: cd backend && py -m uvicorn core.asgi:application --host 127.0.0.1 --port 8000
   be_migrate: cd backend && py manage.py migrate
   be_make_migrations: cd backend && py manage.py makemigrations
 

@@ -1,6 +1,6 @@
 // Modulo donde se realizaran las operaciones de matrices
 
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rand::{Rng, RngExt};
 
@@ -23,8 +23,8 @@ impl Initialization {
 pub struct Matrix {
     rows: usize, // Numero de columnas
     cols: usize, // Numero de filas
-    // Como se sabe que vamos a tener que clonar las matrices varias veces, usamos un ref counter para que clonar sea O(1)
-    pub values: Rc<[f32]>, // Valores, van de izquierda a derecha y de arriba a abajo
+    // Como se sabe que vamos a tener que clonar las matrices varias veces, usamos un atomic ref counter para que clonar sea O(1) y que sea thread safe
+    pub values: Arc<[f32]>, // Valores, van de izquierda a derecha y de arriba a abajo
 }
 
 impl Matrix {
@@ -35,7 +35,7 @@ impl Matrix {
         Ok(Self {
             rows,
             cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -65,7 +65,7 @@ impl Matrix {
         Ok(Self {
             rows,
             cols,
-            values: Rc::from(values),
+            values: Arc::from(values),
         })
     }
 
@@ -88,7 +88,7 @@ impl Matrix {
             return;
         }
 
-        let mut_values = Rc::make_mut(&mut self.values);
+        let mut_values = Arc::make_mut(&mut self.values);
 
         mut_values[row * self.cols + col] = value;
     }
@@ -138,7 +138,7 @@ impl Matrix {
             return Ok(Matrix {
                 rows: out_rows,
                 cols: 1,
-                values: Rc::from(values.into_boxed_slice()),
+                values: Arc::from(values.into_boxed_slice()),
             });
         }
 
@@ -172,7 +172,7 @@ impl Matrix {
         Ok(Matrix {
             rows: out_rows,
             cols: out_cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -216,7 +216,7 @@ impl Matrix {
         Ok(Matrix {
             rows: out_rows,
             cols: out_cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -254,7 +254,7 @@ impl Matrix {
             return Ok(Matrix {
                 rows: out_rows,
                 cols: 1,
-                values: Rc::from(values.into_boxed_slice()),
+                values: Arc::from(values.into_boxed_slice()),
             });
         }
 
@@ -281,7 +281,7 @@ impl Matrix {
         Ok(Matrix {
             rows: out_rows,
             cols: out_cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -291,7 +291,7 @@ impl Matrix {
         }
 
         let cols = self.cols;
-        let values = Rc::make_mut(&mut self.values);
+        let values = Arc::make_mut(&mut self.values);
 
         for (row, bias_value) in bias.iter().enumerate() {
             let start = row * cols;
@@ -313,7 +313,7 @@ impl Matrix {
             return Err("Las matrices deben ser de iguales dimensiones".to_string());
         }
 
-        let values = Rc::make_mut(&mut self.values);
+        let values = Arc::make_mut(&mut self.values);
 
         for (value, delta) in values.iter_mut().zip(&*other_matrix.values) {
             *value -= *delta * scalar;
@@ -326,7 +326,7 @@ impl Matrix {
     where
         F: FnMut(f32) -> f32,
     {
-        for value in Rc::make_mut(&mut self.values).iter_mut() {
+        for value in Arc::make_mut(&mut self.values).iter_mut() {
             *value = f(*value);
         }
     }
@@ -346,7 +346,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -364,7 +364,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -386,7 +386,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 
@@ -396,7 +396,7 @@ impl Matrix {
         Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         }
     }
 
@@ -427,7 +427,7 @@ impl Matrix {
         Matrix {
             rows: self.cols,
             cols: self.rows,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         }
     }
 
@@ -440,7 +440,7 @@ impl Matrix {
         Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         }
     }
     pub fn map_with<F>(&self, other: &Matrix, mut f: F) -> Result<Matrix, String>
@@ -461,7 +461,7 @@ impl Matrix {
         Ok(Matrix {
             rows: self.rows,
             cols: self.cols,
-            values: Rc::from(values.into_boxed_slice()),
+            values: Arc::from(values.into_boxed_slice()),
         })
     }
 }
@@ -554,7 +554,7 @@ mod tests {
             let identity = Matrix::new(2, 2, vec![1.0, 0.0, 0.0, 1.0]).unwrap();
             let result = matrix.multiply(&identity).unwrap();
 
-            // Comparamos los contenidos apuntados por el Rc
+            // Comparamos los contenidos apuntados por el Arc
             assert_eq!(result.values, matrix.values);
         }
     }

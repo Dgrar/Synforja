@@ -16,5 +16,6 @@ fn _engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(nn_config::json_to_nn::parse_csv, m)?)?;
     m.add_function(wrap_pyfunction!(nn_config::json_to_nn::predict_json, m)?)?;
     m.add_function(wrap_pyfunction!(nn_config::json_to_nn::evaluate_json, m)?)?;
+    m.add_class::<nn_config::live_trainer::LiveTrainer>()?;
     Ok(())
 }

@@ -64,7 +64,7 @@ pub enum TrainingSource {
     },
 }
 
-fn loss_from_name(name: &str) -> Result<Box<dyn LossFn>, EngineError> {
+fn loss_from_name(name: &str) -> Result<Box<dyn LossFn + Send + Sync>, EngineError> {
     match name {
         "mse_loss" | "MSELoss" => Ok(Box::from(MSELoss {})),
         "bce_loss" | "BCELoss" => Ok(Box::from(BCELoss {})),
@@ -117,66 +117,163 @@ fn parse_training_data(source_data: TrainingSource) -> Result<Vec<(Vec<f32>, Vec
         .collect())
 }
 
+pub struct TrainingCore {
+    config: NeuralNetworkIn,
+    loss_fn: Box<dyn LossFn + Send + Sync>,
+    model: Network,
+    rng: ChaCha8Rng,
+    data: Vec<(Vec<f32>, Vec<f32>)>,
+    train_indexes: Vec<usize>,
+    test_indexes: Vec<usize>,
+    eval_test_each_epoch: bool,
+}
+
+impl TrainingCore {
+    pub fn new(
+        model_data: &str,
+        source_data: TrainingSource,
+        eval_test_each_epoch: bool,
+    ) -> Result<TrainingCore, EngineError> {
+        let config: NeuralNetworkIn = serde_json::from_str(model_data).map_err(|e| {
+            EngineError::Config(format!("Error al deserializar el json del modelo: {e}"))
+        })?;
+
+        let loss_fn = loss_from_name(&config.loss_fn)?;
+        ensure_trainable(&config.topology)?;
+
+        let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
+        let model = Network::random(&mut rng, &config.topology).map_err(EngineError::Config)?;
+
+        let data = parse_training_data(source_data)?;
+
+        let split_point = (data.len() as f32 * config.training_split) as usize;
+        if split_point == 0 || split_point >= data.len() {
+            return Err(EngineError::EmptySplit);
+        }
+
+        let mut indexes_list: Vec<usize> = (0..data.len()).collect();
+        indexes_list.shuffle(&mut rng);
+
+        let (train_indexes, test_indexes) = indexes_list.split_at(split_point);
+
+        Ok(TrainingCore {
+            config,
+            loss_fn,
+            model,
+            rng,
+            data,
+            train_indexes: train_indexes.to_vec(),
+            test_indexes: test_indexes.to_vec(),
+            eval_test_each_epoch,
+        })
+    }
+
+    pub fn epochs(&self) -> usize {
+        self.config.epochs
+    }
+
+    pub fn train_rows(&self) -> usize {
+        self.train_indexes.len()
+    }
+
+    pub fn test_rows(&self) -> usize {
+        self.test_indexes.len()
+    }
+
+    pub fn epoch(&mut self, epoch_index: usize) -> Result<(f32, Option<f32>), EngineError> {
+        self.train_indexes.shuffle(&mut self.rng);
+
+        let mut train_loss_mean: f32 = 0.0;
+        let mut examples_seen: usize = 0;
+
+        for &index in self.train_indexes.iter() {
+            let (input, target) = &self.data[index];
+
+            let example_loss = self
+                .model
+                .train(input, target, self.loss_fn.as_ref(), self.config.lr)
+                .map_err(EngineError::Shape)?;
+
+            train_loss_mean += (example_loss - train_loss_mean) / (examples_seen + 1) as f32;
+            examples_seen += 1;
+        }
+
+        if !self.model.parameters_are_finite() {
+            return Err(EngineError::Divergence(epoch_index + 1));
+        }
+
+        let test_loss = if self.eval_test_each_epoch {
+            Some(self.mean_loss_on(&self.test_indexes)?)
+        } else {
+            None
+        };
+
+        Ok((train_loss_mean, test_loss))
+    }
+
+    fn mean_loss_on(&self, indexes: &[usize]) -> Result<f32, EngineError> {
+        let mut mean: f32 = 0.0;
+        let mut seen: usize = 0;
+
+        for &index in indexes {
+            let (input, target) = &self.data[index];
+            let input_matrix =
+                Matrix::from_slice(input.len(), 1, input).map_err(EngineError::Shape)?;
+            let (result, _) = self.model.forward(&input_matrix).map_err(EngineError::Shape)?;
+            let expected_matrix =
+                Matrix::from_slice(target.len(), 1, target).map_err(EngineError::Shape)?;
+
+            let example_loss = self
+                .loss_fn
+                .get_loss(&result, &expected_matrix)
+                .map_err(EngineError::Shape)?;
+
+            if !example_loss.is_finite() {
+                return Err(EngineError::Unexpected(
+                    "La pérdida de test dejó de ser finita".to_string(),
+                ));
+            }
+
+            mean += (example_loss - mean) / (seen + 1) as f32;
+            seen += 1;
+        }
+
+        Ok(mean)
+    }
+
+    pub fn outcome(&self) -> Result<TrainingOutcome, EngineError> {
+        let test_data: Vec<(&Vec<f32>, &Vec<f32>)> = self
+            .test_indexes
+            .iter()
+            .map(|&index| (&self.data[index].0, &self.data[index].1))
+            .collect();
+
+        let (mse_loss, r_square, accuracy) = evaluate_training_results(&self.model, &test_data)?;
+
+        Ok(TrainingOutcome {
+            network: self.model.to_layer_send_information(),
+            mse_loss,
+            r_square,
+            accuracy,
+            split: SplitInfo {
+                train_rows: self.train_indexes.len(),
+                test_rows: self.test_indexes.len(),
+            },
+        })
+    }
+}
+
 pub fn create_and_train(
     model_data: String,
     source_data: TrainingSource,
 ) -> Result<TrainingOutcome, EngineError> {
-    let config: NeuralNetworkIn = serde_json::from_str(&model_data)
-        .map_err(|e| EngineError::Config(format!("Error al deserializar el json del modelo: {e}")))?;
+    let mut core = TrainingCore::new(&model_data, source_data, false)?;
 
-    let loss_fn = loss_from_name(&config.loss_fn)?;
-    ensure_trainable(&config.topology)?;
-
-    let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
-    let mut model = Network::random(&mut rng, &config.topology).map_err(EngineError::Config)?;
-
-    let data = parse_training_data(source_data)?;
-
-    let split_point = (data.len() as f32 * config.training_split) as usize;
-    if split_point == 0 || split_point >= data.len() {
-        return Err(EngineError::EmptySplit);
+    for epoch in 0..core.epochs() {
+        core.epoch(epoch)?;
     }
 
-    let mut indexes_list: Vec<usize> = (0..data.len()).collect();
-    indexes_list.shuffle(&mut rng);
-
-    let (train_indexes, test_indexes) = indexes_list.split_at(split_point);
-
-    let mut practice_data: Vec<(&Vec<f32>, &Vec<f32>)> = train_indexes
-        .iter()
-        .map(|&i| (&data[i].0, &data[i].1))
-        .collect();
-
-    let test_data: Vec<(&Vec<f32>, &Vec<f32>)> = test_indexes
-        .iter()
-        .map(|&i| (&data[i].0, &data[i].1))
-        .collect();
-
-    for epoch in 0..config.epochs {
-        practice_data.shuffle(&mut rng);
-        for (input, target) in practice_data.iter() {
-            model
-                .train(input, target, loss_fn.as_ref(), config.lr)
-                .map_err(EngineError::Shape)?;
-        }
-
-        if !model.parameters_are_finite() {
-            return Err(EngineError::Divergence(epoch + 1));
-        }
-    }
-
-    let (mse_loss, r_square, accuracy) = evaluate_training_results(&model, &test_data)?;
-
-    Ok(TrainingOutcome {
-        network: model.to_layer_send_information(),
-        mse_loss,
-        r_square,
-        accuracy,
-        split: SplitInfo {
-            train_rows: split_point,
-            test_rows: data.len() - split_point,
-        },
-    })
+    core.outcome()
 }
 
 fn evaluate_training_results(
@@ -322,8 +419,13 @@ fn evaluate_network(network_json: &str, dataset_json: &str) -> Result<MetricsOut
 }
 
 #[pyfunction]
-pub fn train_json(model_data: String, training_data: String) -> PyResult<String> {
-    let outcome = create_and_train(model_data, TrainingSource::Json(training_data))?;
+pub fn train_json(
+    py: Python<'_>,
+    model_data: String,
+    training_data: String,
+) -> PyResult<String> {
+    let outcome =
+        py.detach(move || create_and_train(model_data, TrainingSource::Json(training_data)))?;
 
     serde_json::to_string(&outcome)
         .map_err(|e| EngineError::Unexpected(e.to_string()).into_py_err())
@@ -331,17 +433,20 @@ pub fn train_json(model_data: String, training_data: String) -> PyResult<String>
 
 #[pyfunction]
 pub fn train_csv(
+    py: Python<'_>,
     model_data: String,
     csv_content: String,
     input_columns: usize,
 ) -> PyResult<String> {
-    let outcome = create_and_train(
-        model_data,
-        TrainingSource::Csv {
-            content: csv_content,
-            input_columns,
-        },
-    )?;
+    let outcome = py.detach(move || {
+        create_and_train(
+            model_data,
+            TrainingSource::Csv {
+                content: csv_content,
+                input_columns,
+            },
+        )
+    })?;
 
     serde_json::to_string(&outcome)
         .map_err(|e| EngineError::Unexpected(e.to_string()).into_py_err())
@@ -358,8 +463,12 @@ pub fn predict_json(network_json: String, input: Vec<f32>) -> PyResult<Vec<f32>>
 }
 
 #[pyfunction]
-pub fn evaluate_json(network_json: String, dataset_json: String) -> PyResult<String> {
-    let metrics = evaluate_network(&network_json, &dataset_json)?;
+pub fn evaluate_json(
+    py: Python<'_>,
+    network_json: String,
+    dataset_json: String,
+) -> PyResult<String> {
+    let metrics = py.detach(move || evaluate_network(&network_json, &dataset_json))?;
 
     serde_json::to_string(&metrics)
         .map_err(|e| EngineError::Unexpected(e.to_string()).into_py_err())

@@ -42,6 +42,7 @@ El humano debe **entender cada concepto NO-frontend** que se implemente. No se a
 | Serialización Rust | serde / serde_json / csv | serde 1.0.229 · csv 1.4.0 |
 | Errores Rust | thiserror | 2.0.1 (declarado, refactor pendiente, §14.18) |
 | Runtime Python | CPython 3.14.4 (`.venv/`) | — |
+| Servidor ASGI (SSE) | uvicorn (dev; ASGI obligatorio para streaming) | 0.54.0 (§14.27) |
 | Cache / rate-limit | Redis (Django `RedisCache`, `redis://127.0.0.1:6379/1`) | redis-py 8.1.0 (§14.13) |
 | Email en Pydantic | email-validator 2.3.0（req. de `EmailStr`) | 2.3.0 |
 | Task runner | `rav` (ver `rav.yaml`) | 0.4.3 |
@@ -53,13 +54,13 @@ Reglas: no cambiar de librería sin justificarlo en §14. Preferir lo ya instala
 ```
 Synforja/
 ├── AGENTS.md, README.md, rav.yaml, pyproject.toml
-├── .venv/                 # CPython 3.14 + Django, Ninja, JWT, Pydantic, maturin, rav
+├── .venv/                 # CPython 3.14 + Django, Ninja, JWT, Pydantic, maturin, rav, uvicorn
 ├── docs/memory/constitution.md   # principios innegociables (spec-driven)
 ├── backend/               # Django 6.1.2
-│   ├── core/              # settings, urls, api (NinjaAPI + throttling)
+│   ├── core/              # settings, urls, api (NinjaAPI + throttling), asgi (uvicorn), perf
 │   ├── users/             # register/login JWT, schemas, rate-limiting (auth.py)
-│   ├── datasets/          # app placeholder (pendiente F5a)
-│   └── training/          # app placeholder (pendiente F5b)
+│   ├── datasets/          # CRUD de datasets (JSON/CSV, validación Pydantic)
+│   └── networks/          # CRUD, train (one-shot + SSE async), predict, runs, weights
 ├── engine-core/           # crate Rust (cdylib para Python)
 │   └── src/               # matrix/, neural_network/, nn_config/
 ├── python/engine_core/    # wrapper Python + _engine.pyd (maturin mixed)
@@ -104,11 +105,12 @@ F5b implementado y cerrado (spec 001, 08-11-2026, §14.26): `POST /networks/{id}
 `GET /networks/{id}/weights` (`{config, network}`, ≤ 50 MB). Errores `{ "detail": ... }`
 (reporte de dataset: `{"detail": {"violations", "total"}}`), schemas Ninja/Pydantic,
 validaciones 404/409/422 y fallo del motor → limpieza a `draft` sin pesos ni run.
-**Sync** por ahora; async/celery solo si una fase lo exige. e2e real 19/19 PASS.
+One-shot síncrono; el streaming SSE (spec 002) es async sobre ASGI (§14.27). e2e real 001 19/19 PASS.
 
 Spec **002** aprobada (streaming SSE: la petición emite train+test por época;
-cancelación al cortar la conexión sin run; curva no persistida) — por ejecutar
-tras cerrar 001.
+cancelación al cortar la conexión sin run; curva no persistida) — **en ejecución**:
+bloques A y B verdes (LiveTrainer + vista/generador async), faltan RNF, e2e real y cierre.
+Enmienda 10-11-2026: modalidad async con uvicorn + threadpool, no servicios nuevos (§14.27).
 
 ## 9. Motor Rust (`engine-core`)
 Responsabilidad única: **matemática numérica de la red**.
@@ -124,7 +126,8 @@ Responsabilidad única: **matemática numérica de la red**.
 
 ## 10. Puente PyO3
 - Crate como **extensión de Python** (`cdylib`), módulo `engine_core._engine`.
-- Exposición: `train_json`, `train_csv`, `parse_csv`, `predict_json`, `evaluate_json`. Errores → `PyValueError` con prefijo `engine::`.
+- Exposición: `train_json`, `train_csv`, `parse_csv`, `predict_json`, `evaluate_json`, clase `LiveTrainer` (SSE: `start_info`/`next_epoch`/`result`). Errores → `PyValueError` con prefijo `engine::`.
+- Motor y `LiveTrainer` son `Send + Sync` (Matrix con `Arc`, `LossFn + Send + Sync`); las llamadas largas usan `Python::detach` para soltar el GIL, lo que permite concurrencia real entre épocas.
 - **Verificado**: PyO3 0.30.1 ↔ CPython 3.14.4 GIL-enabled, ABI `cp314-win_amd64`,
   **sin `abi3`**. Rust 1.98.1 ≥ MSRV 1.85. `maturin develop` (1.16.0) instala
   `synforja-engine` editable; XOR entrenado desde Python predice correctamente.
@@ -138,7 +141,7 @@ cargo test --release --test train_bench -- --ignored --nocapture   # bench µs/p
 cmd /c ".venv\Scripts\maturin.exe develop"            # instalar extensión (raíz del repo)
 cmd /c ".venv\Scripts\maturin.exe develop --release"
 
-rav run be_start      # backend: manage.py runserver (ver rav.yaml)
+rav run be_start      # backend: uvicorn core.asgi:application (SSE; ver rav.yaml)
 rav run be_migrate / be_make_migrations
 rav run fe_install / fe_start   # cuando exista frontend/
 ```
@@ -153,7 +156,7 @@ rav run fe_install / fe_start   # cuando exista frontend/
 | F3 — Backprop | pérdidas, regla de la cadena, `backward` | **HECHA** |
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
 | F5a — CRUD | modelos `Network`/`Dataset` + routers Ninja | **HECHA** (spec 000 completa: A+B+C+D, 112 tests) |
-| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (spec 001 cerrada, §14.26) |
+| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (001 cerrada; 002 streaming async en curso, §14.27) |
 | F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | pendiente |
 
 ## 13. Definition of Done
@@ -235,6 +238,16 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     Benchmarks release: RNF-3 runs p95 **18,0 ms** ✓; RNF-1 referencia
     5 000×7×1 000 epochs → 334,7 s ✗ inicial, optimizado el lazo escalar (§14.17)
     a **124,8–127,1 s ✓** (mse 3,6e-13, r² 1,0, convergencia idéntica). Fase cerrada.
+27. **Streaming SSE async** (10-11-2026, enmienda spec 002): vista `async def` +
+    generador async sobre **ASGI/uvicorn** (nueva dependencia de servidor, no servicio);
+    ORM con `sync_to_async(thread_sensitive=True)` y cada época con
+    `thread_sensitive=False` para liberar el hilo entre épocas. El motor expone
+    `Python::detach` (GIL liberado) y `LiveTrainer` pasó a `Send + Sync` (Matrix con
+    `Arc`, `LossFn + Send + Sync`) para usar hilos del threadpool. Bajo WSGI el stream
+    no funciona (Django rechaza iteradores async); `be_start` ahora es uvicorn.
+    Cancelación por desconexión se aplica al terminar la época en curso (Rust no es
+    interrumpible a mitad de época). Tests async del stream usan
+    `ApiTransactionTestBase` (sin transacción envolvente) y consumen con `async_to_sync`.
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod

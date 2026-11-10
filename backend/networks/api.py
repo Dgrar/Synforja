@@ -2,7 +2,7 @@ import json
 import math
 
 import engine_core
-from django.db import transaction
+from asgiref.sync import sync_to_async
 from django.http import HttpRequest, JsonResponse
 
 from ninja import Router
@@ -18,18 +18,24 @@ from .engine import (
     estimate_dump_bytes,
     parse_engine_error,
 )
-from .models import Network, Run
+from .models import Network
 from .schemas import (
     NetworkIn,
     NetworkOut,
     NetworkPatchIn,
     PredictIn,
     PredictOut,
-    RunDatasetOut,
     RunOut,
     TrainIn,
 )
 from .seed import generate_seed
+from .service import (
+    as_run_out,
+    mark_training,
+    persist_outcome,
+    reset_after_failure,
+)
+from .streaming import stream_train_response, wants_stream
 
 router = Router(auth=JWTAuth())
 
@@ -89,11 +95,6 @@ def ensure_trainable_cost(network: Network, dataset: Dataset) -> None:
         )
 
 # Funcion para asegurarnos de devolver el modelo a su estado inicial tras un fallo
-def reset_after_failure(network: Network) -> None:
-    network.state = Network.State.DRAFT
-    network.weights = None
-    network.save(update_fields=["state", "weights"])
-
 # La funcion que se encarga de hacer que el engine funcione
 def run_engine(network: Network, dataset: Dataset) -> dict:
     config = build_model_config(network)
@@ -102,21 +103,6 @@ def run_engine(network: Network, dataset: Dataset) -> dict:
     else:
         outcome = engine_core.train_json(config, dataset.content)
     return json.loads(outcome)
-
-# Para devolver una run de forma más rapida sin tener que estar copiando y pegando constantemente
-def as_run_out(run: Run) -> RunOut:
-    return RunOut(
-        id=run.id,
-        mse_loss=run.mse_loss,
-        r_square=run.r_square,
-        accuracy=run.accuracy,
-        dataset=RunDatasetOut(
-            id=run.dataset_id,
-            total_rows=run.total_rows,
-            input_cols=run.input_cols,
-            output_cols=run.output_cols,
-        ),
-    )
 
 
 @router.post("", response={201: NetworkOut})
@@ -195,56 +181,45 @@ def delete_network(request: HttpRequest, network_id: int):
     network.delete()
     return 204, None
 
-# Endpoint para entrenar 
-@router.post("/{network_id}/train", response={201: RunOut})
-def train_network(request: HttpRequest, network_id: int, payload: TrainIn):
-    # Obtenemos de la db la nn y el dataset
-    network = get_own_or_404(request.auth, network_id)
-    dataset = get_own_dataset_or_404(request.auth, payload.dataset_id)
-    # Comprobamos si no se está entrenando ya
+# Valida una petición de entrenamiento para ambas modalidades
+def _validate_train_request(user, network_id: int, dataset_id: int) -> tuple[Network, Dataset]:
+    network = get_own_or_404(user, network_id)
+    dataset = get_own_dataset_or_404(user, dataset_id)
     if network.state == Network.State.TRAINING:
         raise HttpError(409, "Ya hay un entrenamiento en curso para esta red")
-    # Comprobamos también si las formas son válidas
     ensure_trainable_shape(network, dataset)
     ensure_trainable_cost(network, dataset)
-    # Iniciamos el entrenamiento
-    network.state = Network.State.TRAINING
-    network.save(update_fields=["state"])
+    return network, dataset
+
+# Endpoint para entrenar y streamear
+@router.post("/{network_id}/train", response={201: RunOut})
+async def train_network(request: HttpRequest, network_id: int, payload: TrainIn):
+    network, dataset = await sync_to_async(
+        _validate_train_request, thread_sensitive=True
+    )(request.auth, network_id, payload.dataset_id)
+    previous_state = network.state
+    previous_weights = network.weights
+    await sync_to_async(mark_training, thread_sensitive=True)(network)
+
+    if wants_stream(request):
+        return stream_train_response(network, dataset, previous_state, previous_weights)
+
     # Intentamos entrenar
     try:
-        outcome = run_engine(network, dataset)
+        outcome = await sync_to_async(run_engine, thread_sensitive=False)(network, dataset)
     except ValueError as error:
         # Si hay algun error: Parseamos, reseteamos y devolvemos error
         code, detail = parse_engine_error(str(error))
-        reset_after_failure(network)
+        await sync_to_async(reset_after_failure, thread_sensitive=True)(network)
         raise HttpError(engine_error_status(code), detail)
     except Exception:
         # Si pasa otra cosa, reseteamos sin más
-        reset_after_failure(network)
+        await sync_to_async(reset_after_failure, thread_sensitive=True)(network)
         raise
 
-    try:
-        # Obligamos a la atomicidad de las siguientes lineas (TODO O NADA)
-        with transaction.atomic():
-            # Guardamos el modelo entrenado
-            network.state = Network.State.TRAINED
-            network.weights = outcome["network"]
-            network.save(update_fields=["state", "weights"])
-            # Creamos un objeto de run
-            run = Run.objects.create(
-                network=network,
-                dataset_id=dataset.id,
-                total_rows=dataset.total_rows,
-                input_cols=dataset.input_cols,
-                output_cols=dataset.output_cols,
-                mse_loss=outcome["mse_loss"],
-                r_square=outcome["r_square"],
-                accuracy=outcome["accuracy"],
-            )
-    except Exception:
-        # Si hay algun error reseteamos
-        reset_after_failure(network)
-        raise
+    run = await sync_to_async(persist_outcome, thread_sensitive=True)(
+        network, dataset, outcome
+    )
     # Devolvemos la run
     return as_run_out(run)
 

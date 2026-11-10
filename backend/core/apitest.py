@@ -1,7 +1,7 @@
 import json
 import uuid
 
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 
 # Los tests no dependen de Redis: LocMemCache hermético por proceso.
 LOC_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
@@ -21,12 +21,8 @@ def auth_headers(user) -> dict:
     return {"HTTP_AUTHORIZATION": f"Bearer {refresh.access_token}"}
 
 
-@override_settings(CACHES=LOC_CACHES, PASSWORD_HASHERS=[TEST_HASHER])
-class ApiTestBase(TestCase):
-    """Base para tests de API: cache local, ip propia y helpers HTTP.
-
-    Cada test tiene una ip única: el throttling global y los rate-limits de auth usan cache compartido, así cada test queda aislado de los demás.
-    """
+class ApiHttpMixin:
+    """Helpers HTTP y aislamiento por ip para las bases de test de API."""
 
     def setUp(self):
         super().setUp()
@@ -61,3 +57,19 @@ class ApiTestBase(TestCase):
 
     def get_json(self, url: str):
         return self.request("get", url)
+
+
+@override_settings(CACHES=LOC_CACHES, PASSWORD_HASHERS=[TEST_HASHER])
+class ApiTestBase(ApiHttpMixin, TestCase):
+    """Base para tests de API: cache local, ip propia y helpers HTTP.
+
+    Cada test tiene una ip única: el throttling global y los rate-limits de auth usan cache compartido, así cada test queda aislado de los demás.
+    """
+
+
+@override_settings(CACHES=LOC_CACHES, PASSWORD_HASHERS=[TEST_HASHER])
+class ApiTransactionTestBase(ApiHttpMixin, TransactionTestCase):
+    """Igual que ApiTestBase, pero sin transacción envolvente (código async).
+
+    Las escrituras con sync_to_async en otro hilo deben ver y poder tocar datos ya comprometidos, cosa que la transacción de TestCase bloquea en SQLite.
+    """

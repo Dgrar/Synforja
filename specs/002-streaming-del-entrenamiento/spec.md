@@ -1,6 +1,12 @@
 # Spec 002 — Progreso del entrenamiento en vivo (streaming SSE)
 
 > Estado: **APROBADA** (08-11-2026).
+> **Enmienda 10-11-2026 (modalidad async):** el dueño decidió ejecutar el streaming con
+> vista y generador **async** sobre ASGI (uvicorn), liberando el hilo entre épocas
+> (`sync_to_async(thread_sensitive=False)`); el cálculo de cada época sigue siendo el
+> mismo motor Rust. No agrega servicios nuevos (uvicorn es el servidor ASGI, no un
+> worker). La cancelación por desconexión se aplica al terminar la época en curso (el
+> motor no es interrumpible a mitad de época). Todo lo demás de esta spec rige sin cambios.
 > Se apoya en la spec 001 (aprobada el 08-11-2026) y la enmienda en UNA sola cosa: la modalidad de respuesta del entrenamiento (RF-3 de 001 gana una alternativa de streaming). Todo lo demás de 001 rige sin cambios.
 
 ## 1. Contexto y objetivo

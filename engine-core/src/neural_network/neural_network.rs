@@ -1,6 +1,6 @@
 use rand::prelude::Rng;
 use serde::{Deserialize, Serialize};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use crate::{Initialization, Matrix};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,7 +35,7 @@ impl Activation {
                 let rows = temp.rows();
                 let cols = temp.cols();
 
-                let mut_data = Rc::make_mut(&mut temp.values);
+                let mut_data = Arc::make_mut(&mut temp.values);
 
                 for row in 0..rows {
                     let mut max_val = f32::NEG_INFINITY;
@@ -75,7 +75,7 @@ impl Activation {
             Activation::SoftMax => {
                 let rows = matrix.rows();
                 let cols = matrix.cols();
-                let values = Rc::make_mut(&mut matrix.values);
+                let values = Arc::make_mut(&mut matrix.values);
                 let mut exps = vec![0.0; cols];
 
                 for row in 0..rows {

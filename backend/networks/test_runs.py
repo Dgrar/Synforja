@@ -61,12 +61,12 @@ class RunsEndpointTests(ApiTestBase):
         }
         values.update(overrides)
         return Dataset.objects.create(**values)
-
+    
     def train(self, network, dataset):
         return self.post_json(
             f"/api/networks/{network.id}/train", {"dataset_id": dataset.id}
         )
-
+    # Comprobamos comportamiento correcto ante lista vacía
     def test_runs_empty_list(self):
         network = self.make_network()
 

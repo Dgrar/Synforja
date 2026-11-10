@@ -1,17 +1,23 @@
+import json
 import time
 
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 
-from core.apitest import ApiTestBase, rand_suffix
+from core.apitest import ApiTestBase, ApiTransactionTestBase, rand_suffix
 from networks.models import Network, Run
 
 NET_TARGET_MS = 200.0
 DATASET_TARGET_MS = 2000.0
 TRAIN_TARGET_MS = 300_000.0
 RUNS_TARGET_MS = 200.0
+STREAM_CADENCE_TARGET_MS = 10_000.0
+STREAM_FACTOR_TARGET = 2.0
+STREAM_SIZE_TARGET_BYTES = 2 * 1024 * 1024
 
 TRAIN_REFERENCE_ROWS = 5_000
 TRAIN_REFERENCE_EPOCHS = 1_000
+STREAM_SIZE_EPOCHS = 10_000
 
 API_NET = {
     "name": "perf",
@@ -246,3 +252,136 @@ class PerformanceTests(ApiTestBase):
         value = p95(times)
         print(f"[RNF-3/001] runs_list_p95_ms: {value:.1f} ms")
         self.assertLess(value, RUNS_TARGET_MS)
+
+class StreamingPerformanceTests(ApiTransactionTestBase):
+    """RNF de la fase 002 (streaming SSE): se corren por tarea, no en la suite general."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = get_user_model().objects.create_user(
+            username=f"perf_{rand_suffix()}", password="xK9mQ2pLz1!"
+        )
+        from core.apitest import auth_headers
+
+        self.auth = auth_headers(self.user)
+
+    def train(self, network_id, dataset_id, stream):
+        extra = {**self.auth, "REMOTE_ADDR": self.remote_ip}
+        if stream:
+            extra["HTTP_ACCEPT"] = "text/event-stream"
+        return self.client.post(
+            f"/api/networks/{network_id}/train",
+            data=json.dumps({"dataset_id": dataset_id}),
+            content_type="application/json",
+            **extra,
+        )
+
+    def consume(self, response):
+        async def run():
+            start = time.perf_counter()
+            chunks = []
+            async for chunk in response.streaming_content:
+                text = chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk
+                chunks.append((ms(start), text))
+            return chunks
+
+        return async_to_sync(run)()
+
+    def reference(self):
+        response = self.post_json(
+            "/api/datasets",
+            {
+                "source_type": "csv",
+                "name": "referencia",
+                "content": train_reference_csv(),
+                "input_cols": 7,
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content[:200])
+        dataset_id = response.json()["id"]
+
+        network = self.post_json("/api/networks", TRAIN_REFERENCE_NET)
+        self.assertEqual(network.status_code, 201, network.content[:200])
+        return dataset_id, network.json()["id"]
+
+    def test_rnf1_rnf2_streaming_reference(self):
+        dataset_id, network_id = self.reference()
+
+        start = time.perf_counter()
+        one_shot = self.train(network_id, dataset_id, stream=False)
+        self.assertEqual(one_shot.status_code, 201, one_shot.content[:300])
+        one_shot_ms = ms(start)
+
+        second = self.post_json("/api/networks", TRAIN_REFERENCE_NET)
+        stream_network_id = second.json()["id"]
+        start = time.perf_counter()
+        response = self.train(stream_network_id, dataset_id, stream=True)
+        self.assertEqual(response.status_code, 200)
+        chunks = self.consume(response)
+        stream_ms = ms(start)
+
+        epoch_times = [
+            offset for offset, chunk in chunks
+            if chunk.startswith("event: epoch")
+        ]
+        self.assertEqual(len(epoch_times), TRAIN_REFERENCE_EPOCHS)
+
+        first_epoch_ms = epoch_times[0]
+        gaps = [
+            later - earlier
+            for earlier, later in zip(epoch_times, epoch_times[1:])
+        ]
+        cadence_ms = p95(gaps)
+        ratio = stream_ms / one_shot_ms
+
+        print(f"[RNF-1/002] first_epoch_ms: {first_epoch_ms:.1f} ms")
+        print(f"[RNF-1/002] epoch_gap_p95_ms: {cadence_ms:.1f} ms")
+        print(f"[RNF-2/002] one_shot_ms: {one_shot_ms:.1f} ms")
+        print(f"[RNF-2/002] stream_ms: {stream_ms:.1f} ms")
+        print(f"[RNF-2/002] ratio: {ratio:.2f}x")
+
+        self.assertLess(first_epoch_ms, STREAM_CADENCE_TARGET_MS)
+        self.assertLess(cadence_ms, STREAM_CADENCE_TARGET_MS)
+        self.assertLess(ratio, STREAM_FACTOR_TARGET)
+
+    def test_rnf3_stream_size_10k_epochs_below_2mb(self):
+        inputs = [[0, 0], [0, 1], [1, 0], [1, 1]] * 4
+        expects = [[0], [1], [1], [0]] * 4
+        response = self.post_json(
+            "/api/datasets",
+            {
+                "source_type": "json",
+                "name": "xor",
+                "content": {"inputs": inputs, "expects": expects},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content[:200])
+        dataset_id = response.json()["id"]
+
+        network = self.post_json(
+            "/api/networks",
+            {
+                "name": "xor_10k",
+                "layers": [
+                    {"size": 2, "activation": "linear"},
+                    {"size": 4, "activation": "tanh"},
+                    {"size": 1, "activation": "tanh"},
+                ],
+                "epochs": STREAM_SIZE_EPOCHS,
+                "learning_rate": 0.2,
+                "loss": "mse",
+                "training_split": 0.8,
+                "seed": 42,
+            },
+        )
+        self.assertEqual(network.status_code, 201, network.content[:200])
+
+        start = time.perf_counter()
+        response = self.train(network.json()["id"], dataset_id, stream=True)
+        chunks = self.consume(response)
+        total_bytes = sum(len(chunk) for _, chunk in chunks)
+        elapsed = ms(start)
+
+        print(f"[RNF-3/002] stream_10k_bytes: {total_bytes}")
+        print(f"[RNF-3/002] stream_10k_ms: {elapsed:.1f} ms")
+        self.assertLess(total_bytes, STREAM_SIZE_TARGET_BYTES)
