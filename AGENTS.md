@@ -107,10 +107,14 @@ F5b implementado y cerrado (spec 001, 08-11-2026, §14.26): `POST /networks/{id}
 validaciones 404/409/422 y fallo del motor → limpieza a `draft` sin pesos ni run.
 One-shot síncrono; el streaming SSE (spec 002) es async sobre ASGI (§14.27). e2e real 001 19/19 PASS.
 
-Spec **002** aprobada (streaming SSE: la petición emite train+test por época;
-cancelación al cortar la conexión sin run; curva no persistida) — **en ejecución**:
-bloques A y B verdes (LiveTrainer + vista/generador async), faltan RNF, e2e real y cierre.
-Enmienda 10-11-2026: modalidad async con uvicorn + threadpool, no servicios nuevos (§14.27).
+Spec **002** cerrada (streaming SSE, 11-11-2026): `POST /networks/{id}/train` con
+`Accept: text/event-stream` emite `start` → `epoch`×N (train+test por época) → `final`
+(o `error`); cancelación por desconexión deja `draft` sin run, divergencia deja `draft`
+y errores inesperados restauran estado/pesos previos; curva no persistida; 409 si la red
+ya está en entrenamiento. Modalidad async (uvicorn + threadpool, no servicios nuevos,
+§14.27), e2e real **30/30 PASS**, suite **168 tests**, Rust **62 tests**. Bench release:
+RNF-1 first **119,8 ms** / gap p95 **142,8 ms**; RNF-2 stream **116,1 s** vs one-shot
+**97,5 s** (**1,19×**); RNF-3 10 000 épocas **920 609 B** (< 2 MB).
 
 ## 9. Motor Rust (`engine-core`)
 Responsabilidad única: **matemática numérica de la red**.
@@ -156,7 +160,7 @@ rav run fe_install / fe_start   # cuando exista frontend/
 | F3 — Backprop | pérdidas, regla de la cadena, `backward` | **HECHA** |
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
 | F5a — CRUD | modelos `Network`/`Dataset` + routers Ninja | **HECHA** (spec 000 completa: A+B+C+D, 112 tests) |
-| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (001 cerrada; 002 streaming async en curso, §14.27) |
+| F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (001+002 cerradas; streaming SSE async, §14.27) |
 | F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | pendiente |
 
 ## 13. Definition of Done
@@ -248,6 +252,11 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     Cancelación por desconexión se aplica al terminar la época en curso (Rust no es
     interrumpible a mitad de época). Tests async del stream usan
     `ApiTransactionTestBase` (sin transacción envolvente) y consumen con `async_to_sync`.
+    Cierre 11-11-2026: e2e real **30/30** (uvicorn `:8013`, cliente streaming con lector
+    en hilo; cerrar el iterador sin `close()` hacía que el servidor viera la desconexión
+    y limpiara antes de comprobar el 409); benches release RNF-1 **119,8 ms**/p95
+    **142,8 ms**, RNF-2 **1,19×**, RNF-3 **920 609 B**. Con `maturin develop` (debug) la
+    referencia tarda ~9× más y los RNF no son válidos.
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod

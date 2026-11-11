@@ -37,13 +37,13 @@
 
 ## Bloque C — RNF, e2e y cierre
 
-- [ ] **T9. Rendimiento del stream** — añadir a `core/perf.py` (etiqueta streaming, fuera de la suite general, `maturin --release`): RNF-1 cadencia (1.er evento y huecos ≤ 10 s en la corrida de referencia), RNF-2 (stream ≤ 2× one-shot mismo config), RNF-3 (stream 10 000 épocas < 2 MB medido).
+- [x] **T9. Rendimiento del stream** — añadir a `core/perf.py` (etiqueta streaming, fuera de la suite general, `maturin --release`): RNF-1 cadencia (1.er evento y huecos ≤ 10 s en la corrida de referencia), RNF-2 (stream ≤ 2× one-shot mismo config), RNF-3 (stream 10 000 épocas < 2 MB medido).
       *Hecho si:* números impresos y dentro de umbral; desviaciones documentadas aquí.
-      > Resultados: (pendiente de ejecución)
-- [ ] **T10. Pasada e2e con servidor real** — train en modo streaming con `curl -N` (header Accept + token): observar start/epoch/final en vivo; cortar la conexión a mitad (Ctrl-C del curl) y verificar sin run/draft; re-entrenar one-shot y comparar métricas (RN-3). Apuntar desviaciones.
-      > Resultados: (pendiente de ejecución)
-- [ ] **T11. Cierre de F5b** — `manage.py check` + `manage.py test` + `cargo test` verde; resumen §2 (qué/cómo/se verifica); AGENTS.md §12: F5b → HECHA (001+002); §14 con las decisiones de motor (TrainingCore/LiveTrainer, wire SSE, evaluación de test por época).
-      > Resultados: (pendiente de ejecución)
+      > Resultados (11-11-2026, `maturin develop --release`): RNF-1 `first_epoch_ms` **119,8 ms** y `epoch_gap_p95_ms` **142,8 ms** (umbral 10 s); RNF-2 stream **116 051,3 ms** vs one-shot **97 476,2 ms** → **1,19×** (umbral 2×); RNF-3 **920 609 B** y 4,6 s para 10 000 épocas (umbral 2 MB). Bench `core.perf.StreamingPerformanceTests` (`ApiTransactionTestBase`, fuera de la suite general). Desviación: con `maturin develop` debug el one-shot de referencia sube a ~1 139 s (≈9×); los RNF solo son válidos con build release, y el bench debe correrse sin otras cargas de CPU.
+- [x] **T10. Pasada e2e con servidor real** — train en modo streaming con `curl -N` (header Accept + token): observar start/epoch/final en vivo; cortar la conexión a mitad (Ctrl-C del curl) y verificar sin run/draft; re-entrenar one-shot y comparar métricas (RN-3). Apuntar desviaciones.
+      > Resultados (11-11-2026): e2e real ASGI/uvicorn (`:8013`) **30/30 PASS** (`E2E-STREAMING-OK`): secuencia `start` + 8 `epoch` + `final` en vivo, `final` == GET runs, stream == one-shot (métricas y pesos), 409 en segunda petición (estado `training` visible durante el stream), cancelación explícita → `draft` sin run ni pesos, divergencia → evento `error` con código `divergence` y `draft`, validación 422 JSON sin abrir stream. Desviación: cliente Python `requests` con lector en hilo en lugar de `curl -N`; romper el iterador sin `close()` cierra el socket y dispara la limpieza antes de comprobar el 409, así que el e2e debe leer en continuo y cerrar explícitamente.
+- [x] **T11. Cierre de F5b** — `manage.py check` + `manage.py test` + `cargo test` verde; resumen §2 (qué/cómo/se verifica); AGENTS.md §12: F5b → HECHA (001+002); §14 con las decisiones de motor (TrainingCore/LiveTrainer, wire SSE, evaluación de test por época).
+      > Resultados (11-11-2026): `manage.py check` OK; `manage.py test` **168/168 OK**; `cargo test` **62/62 OK** (1 bench ignorado). AGENTS §12 F5b HECHA (001+002), §8 y §14.27 actualizados con wire SSE, async/uvicorn y números RNF.
 
 ## Matriz RF → tarea
 

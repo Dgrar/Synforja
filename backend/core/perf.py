@@ -306,19 +306,23 @@ class StreamingPerformanceTests(ApiTransactionTestBase):
 
     def test_rnf1_rnf2_streaming_reference(self):
         dataset_id, network_id = self.reference()
+        print("[perf] referencia lista; one-shot...", flush=True)
 
         start = time.perf_counter()
         one_shot = self.train(network_id, dataset_id, stream=False)
         self.assertEqual(one_shot.status_code, 201, one_shot.content[:300])
         one_shot_ms = ms(start)
+        print(f"[perf] one-shot terminado: {one_shot_ms:.1f} ms", flush=True)
 
         second = self.post_json("/api/networks", TRAIN_REFERENCE_NET)
         stream_network_id = second.json()["id"]
         start = time.perf_counter()
         response = self.train(stream_network_id, dataset_id, stream=True)
         self.assertEqual(response.status_code, 200)
+        print("[perf] stream abierto; consumiendo...", flush=True)
         chunks = self.consume(response)
         stream_ms = ms(start)
+        print(f"[perf] stream terminado: {stream_ms:.1f} ms", flush=True)
 
         epoch_times = [
             offset for offset, chunk in chunks
