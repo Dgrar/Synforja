@@ -240,6 +240,10 @@ class DatasetsCreateTests(DatasetsAPIBase):
         self.assertEqual(data["input_cols"], 2)
         self.assertEqual(data["output_cols"], 1)
         self.assertEqual(data["content_url"], f"{DATASETS_URL}/{data['id']}/content")
+        self.assertEqual(
+            data["content_bytes"],
+            len(API_CSV["content"].encode("utf-8")),
+        )
         dataset = Dataset.objects.get(pk=data["id"])
         self.assertEqual(dataset.content, API_CSV["content"])
 

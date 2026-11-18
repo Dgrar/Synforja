@@ -30,11 +30,12 @@ SECRET_KEY = 'django-insecure-6(((czk*s%#jzfd!9beb%ok+f=vj=w6@x_f@+iya3ki1#qlvhv
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = is_debug
 
-CORS_ALLOW_ALL_ORIGINS = is_debug
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ]
 
 
@@ -164,6 +165,10 @@ NINJA_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=120 if is_debug else 15),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1 if is_debug else 7)
 }
+
+# Cookies de sesión F6: host-only, HttpOnly y Secure fuera de DEBUG.
+AUTH_COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "Lax")
+AUTH_COOKIE_SECURE = not is_debug
 
 # Rate limits a endpoins protegidos
 

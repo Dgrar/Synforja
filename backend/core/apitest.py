@@ -36,6 +36,10 @@ class ApiHttpMixin:
         )
         self.auth = {}
 
+    def csrf_headers(self) -> dict:
+        response = self.client.get("/api/users/csrf", REMOTE_ADDR=self.remote_ip)
+        return {"HTTP_X_CSRFTOKEN": response.json()["csrf_token"]}
+
     def request(self, method: str, url: str, data: dict | None = None):
         extra = {"REMOTE_ADDR": self.remote_ip, **self.auth}
         payload = json.dumps(data) if data is not None else data
@@ -59,7 +63,11 @@ class ApiHttpMixin:
         return self.request("get", url)
 
 
-@override_settings(CACHES=LOC_CACHES, PASSWORD_HASHERS=[TEST_HASHER])
+@override_settings(
+    CACHES=LOC_CACHES,
+    PASSWORD_HASHERS=[TEST_HASHER],
+    AUTH_COOKIE_SECURE=False,
+)
 class ApiTestBase(ApiHttpMixin, TestCase):
     """Base para tests de API: cache local, ip propia y helpers HTTP.
 
@@ -67,7 +75,11 @@ class ApiTestBase(ApiHttpMixin, TestCase):
     """
 
 
-@override_settings(CACHES=LOC_CACHES, PASSWORD_HASHERS=[TEST_HASHER])
+@override_settings(
+    CACHES=LOC_CACHES,
+    PASSWORD_HASHERS=[TEST_HASHER],
+    AUTH_COOKIE_SECURE=False,
+)
 class ApiTransactionTestBase(ApiHttpMixin, TransactionTestCase):
     """Igual que ApiTestBase, pero sin transacción envolvente (código async).
 

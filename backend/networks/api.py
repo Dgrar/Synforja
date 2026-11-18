@@ -7,9 +7,9 @@ from django.http import HttpRequest, JsonResponse
 
 from ninja import Router
 from ninja.errors import HttpError
-from ninja_jwt.authentication import JWTAuth
 
 from datasets.models import Dataset
+from users.auth import CookieJWTAuth
 
 from .engine import (
     MAX_DUMP_BYTES,
@@ -37,7 +37,7 @@ from .service import (
 )
 from .streaming import stream_train_response, wants_stream
 
-router = Router(auth=JWTAuth())
+router = Router(auth=CookieJWTAuth())
 
 MAX_TRAIN_EPOCHS = 10_000
 MAX_TRAIN_LR = 1.0

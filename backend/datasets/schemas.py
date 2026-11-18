@@ -28,6 +28,7 @@ class DatasetOut(Schema):
     name: str
     source_type: str
     content_url: str
+    content_bytes: int
     total_rows: int
     input_cols: int
     output_cols: int

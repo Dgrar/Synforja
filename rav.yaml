@@ -7,8 +7,10 @@ scripts:
 
   fe_start: cd frontend && npm run dev
   fe_install: cd frontend && npm install
+  fe_lint: cd frontend && npm run lint
+  fe_build: cd frontend && npm run build
+  fe_test: cd frontend && npm test
 
   dev: 
     - rav run be_start
     - rav run fe_start
-  

@@ -4,13 +4,14 @@ from django.http import HttpRequest, JsonResponse
 
 from ninja import Router
 from ninja.errors import HttpError
-from ninja_jwt.authentication import JWTAuth
+
+from users.auth import CookieJWTAuth
 
 from .models import Dataset
 from .schemas import DatasetContentOut, DatasetIn, DatasetOut
 from .validation import Invalid, Ok, Limit, scan_csv, scan_json
 
-router = Router(auth=JWTAuth())
+router = Router(auth=CookieJWTAuth())
 
 
 def dataset_report(entries, total: int) -> JsonResponse:
@@ -33,6 +34,7 @@ def as_out(dataset: Dataset) -> DatasetOut:
         name=dataset.name,
         source_type=dataset.source_type,
         content_url=f"/api/datasets/{dataset.id}/content",
+        content_bytes=len(dataset.content.encode("utf-8")),
         total_rows=dataset.total_rows,
         input_cols=dataset.input_cols,
         output_cols=dataset.output_cols,

@@ -31,7 +31,7 @@ El humano debe **entender cada concepto NO-frontend** que se implemente. No se a
 ## 4. Stack y decisiones (LOCKED salvo propuesta explícita)
 | Capa | Tecnología | Versión |
 |---|---|---|
-| Frontend | Next.js 16 (App Router) + TypeScript, Node 22 LTS | por FIJAR (F6 scaffoldea) |
+| Frontend | Next.js 16 (App Router) + TypeScript + Tailwind 4, Node 22 LTS | Next.js 16.4.6 · React 19.3.1 · TS 5.9.3 · Tailwind 4.3.5 · Node 22.23.5 |
 | API | Django + Django Ninja | Django 6.1.2 · django-ninja 1.7.1 |
 | Auth | JWT (django-ninja-jwt) | 5.4.5 |
 | Validación | Pydantic v2 | 2.14.1 |
@@ -58,18 +58,19 @@ Synforja/
 ├── docs/memory/constitution.md   # principios innegociables (spec-driven)
 ├── backend/               # Django 6.1.2
 │   ├── core/              # settings, urls, api (NinjaAPI + throttling), asgi (uvicorn), perf
-│   ├── users/             # register/login JWT, schemas, rate-limiting (auth.py)
+│   ├── users/             # auth cookie-only (JWT + CSRF), schemas, rate-limiting (auth.py)
 │   ├── datasets/          # CRUD de datasets (JSON/CSV, validación Pydantic)
 │   └── networks/          # CRUD, train (one-shot + SSE async), predict, runs, weights
 ├── engine-core/           # crate Rust (cdylib para Python)
 │   └── src/               # matrix/, neural_network/, nn_config/
 ├── python/engine_core/    # wrapper Python + _engine.pyd (maturin mixed)
-└── frontend/              # pendiente (F6)
+└── frontend/              # Next.js 16 (F6): auth, shell, panel, listas; Vitest
+    └── src/               # app/, components/, lib/, tests/
 ```
 
 ## 6. Arquitectura y fronteras
 ```
-Next.js (auth JWT) ──HTTP/JSON──▶ Django Ninja (API, validación Pydantic)
+Next.js (cookies HttpOnly + CSRF) ──HTTP/JSON──▶ Django Ninja (API, validación Pydantic)
                                           │
                                           ▼
                                    Python orquestador ──PyO3──▶ engine-core (Rust)
@@ -97,7 +98,7 @@ Implementado: schema NinjaAPI con throttling global (anon 10/s, auth 100/m) y
 routers `users` (`/api/users`), `networks` (`/api/networks`, CRUD JWT + RF-18) y
 `datasets` (`/api/datasets`, CRUD JWT con límites y reporte 1-based, §14.21),
 montados en `core/api.py` (+ `/api/test`). Auth verificado e2e; routers verificados
-por suite (160 tests, hasher MD5 §14.22).
+por suite (**186 tests**, hasher MD5 §14.22).
 
 F5b implementado y cerrado (spec 001, 08-11-2026, §14.26): `POST /networks/{id}/train`
 (one-shot, 201 + run), `POST /networks/{id}/predict` (`{"input": [...]}` →
@@ -115,6 +116,18 @@ ya está en entrenamiento. Modalidad async (uvicorn + threadpool, no servicios n
 §14.27), e2e real **30/30 PASS**, suite **168 tests**, Rust **62 tests**. Bench release:
 RNF-1 first **119,8 ms** / gap p95 **142,8 ms**; RNF-2 stream **116,1 s** vs one-shot
 **97,5 s** (**1,19×**); RNF-3 10 000 épocas **920 609 B** (< 2 MB).
+
+F6 en curso. **Bloque A** (14-11-2026, enmienda spec 003): sesión cookie-only
+(`synforja_access`/`synforja_refresh`/`synforja_csrf`), CSRF de doble envío,
+`/csrf`, `/me`, `/refresh`, `/logout`, CORS con credenciales y host canónico
+`localhost`; login/register ya no devuelven tokens; Bearer interno conservado.
+**Bloque B** (18-11-2026): frontend Next.js con `SessionProvider`, `apiFetch`
+(CSRF + refresh single-flight + reintentos 401/403), guardas de ruta, login/registro,
+shell responsive y panel/listas de redes/datasets. **Bloque C** (18-11-2026): CRUD
+visual de redes y datasets (alta, edición, detalle, borrado, previews, descarga y
+confirmación de pérdida de pesos). Verificado con **32 tests Vitest**, build estático
+de 10 rutas y e2e Chrome **31/31** sobre build de producción; RNF-2 p95 **104,7 ms**
+(< 200 ms, 20 capas).
 
 ## 9. Motor Rust (`engine-core`)
 Responsabilidad única: **matemática numérica de la red**.
@@ -147,7 +160,7 @@ cmd /c ".venv\Scripts\maturin.exe develop --release"
 
 rav run be_start      # backend: uvicorn core.asgi:application (SSE; ver rav.yaml)
 rav run be_migrate / be_make_migrations
-rav run fe_install / fe_start   # cuando exista frontend/
+rav run fe_install / fe_start   # frontend Next.js en :3000
 ```
 > Invocar `maturin.exe` directamente en PowerShell puede colgarse; usar `cmd /c` (verificado).
 
@@ -161,7 +174,7 @@ rav run fe_install / fe_start   # cuando exista frontend/
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
 | F5a — CRUD | modelos `Network`/`Dataset` + routers Ninja | **HECHA** (spec 000 completa: A+B+C+D, 112 tests) |
 | F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (001+002 cerradas; streaming SSE async, §14.27) |
-| F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | pendiente |
+| F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | **EN CURSO** — A+B+C verificados (auth/shell/CRUD); restan D+E |
 
 ## 13. Definition of Done
 - [ ] Compila (`cargo build` / `manage.py check`) y pasa tests sin warnings nuevos.
@@ -187,7 +200,8 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
 12. **Auth oficial**: register/login JWT (django-ninja-jwt), rate-limiting por IP con Redis,
     login anti user-enumeration (fake hash check). Frontend tendrá auth.
 13. **Redis mantenido** como cache/rate-limit (justificación: throttling y locks de auth).
-14. Frontend será Next.js, **puerto 3000** (CORS actual `:5173` sobra, corregir en F6).
+14. Frontend será Next.js, **puerto 3000**; CORS con credenciales y orígenes exactos
+    (`localhost:3000`/`127.0.0.1:3000`) implementado en F6 bloque A.
 15. **Semilla obligatoria** en el contrato JSON del modelo (ChaCha8): implementada en
     F5b (campo obligatorio, `seed_from_u64` para init y shuffle; sin fallback expuesto).
 16. **SGD puro** (ejemplo a ejemplo), **sin batches**; batch_size fuera del modelo de dominio.
@@ -200,8 +214,8 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     el refactor interno completo de `String` sigue pendiente.
 19. Router `users` montado en `core/api.py` (`/api/users`); rate-limit de auth con
     `cache.set(timeout=int(timedelta.total_seconds()))` — verificado e2e con servidor real.
-    Login responde `{refresh_token, access_token}` y register `{access, refresh}` (unificar
-    nombres queda para una pasada de limpieza del schema).
+    Login y register responden `{id, username, email}`; los tokens viajan solo en cookies
+    HttpOnly desde F6 bloque A (18-11-2026).
 20. **Topes de tamaño adelantados de F5b a F5a** (RF-18, espec 000, 08-11-2026):
     capas ≤ 20, neuronas por capa ≤ 2048; los límites de dataset (5 MB / 50k filas,
     RF-12) llegan con el bloque C; `DATA_UPLOAD_MAX_MEMORY_SIZE` subido a 6,5 MB por
@@ -257,6 +271,19 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     y limpiara antes de comprobar el 409); benches release RNF-1 **119,8 ms**/p95
     **142,8 ms**, RNF-2 **1,19×**, RNF-3 **920 609 B**. Con `maturin develop` (debug) la
     referencia tarda ~9× más y los RNF no son válidos.
+28. **Sesión F6 cookie-only** (14-11-2026, enmienda spec 003): access/refresh **no** van a
+    `localStorage`; viajan en cookies HttpOnly (`Secure` en prod, SameSite configurable),
+    con CSRF de doble envío, `/csrf`, `/me`, `/refresh` por cookie y `/logout`. Login/register
+    dejan de devolver tokens; CORS con credenciales y orígenes exactos; host canónico
+    `localhost` (frontend 3000 / API 8000). Bearer se conserva para tests/clientes
+    internos. Cambio breaking aprobado e implementado en F6 bloques A+B (18-11-2026):
+    186 tests backend, 21 Vitest, e2e Chrome 14/14.
+29. **Bloque C F6** (18-11-2026): CRUD visual de redes y datasets, previews, descarga,
+    reporte de violaciones y confirmación de pérdida de pesos. `DatasetOut` expone
+    `content_bytes` (UTF-8) para mostrar el tamaño en listas. Verificado con **32 tests
+    Vitest**, build de 10 rutas y e2e Chrome **31/31** sobre build de producción; RNF-2
+    p95 **104,7 ms** (< 200 ms, 20 capas). El E2E cubre archivo local, CSV íntegro,
+    descarga, RF-12 (trained → confirmación → draft), borrados y guardas de sesión.
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod
