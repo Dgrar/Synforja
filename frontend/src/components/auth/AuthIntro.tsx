@@ -9,13 +9,16 @@ export function AuthIntro({
 }) {
   return (
     <div className="mb-8">
-      <p className="text-[0.68rem] font-medium uppercase tracking-[0.22em] text-mint-400">
+      <p className="font-mono text-[0.6rem] uppercase tracking-[0.22em] text-vermilion-500">
         {eyebrow}
       </p>
-      <h1 className="mt-3 text-3xl font-semibold tracking-tight text-mist-50">
+      <h1 className="mt-3 font-serif text-4xl font-normal tracking-tight text-ink-950">
         {title}
+        <span aria-hidden="true" className="text-vermilion-500">
+          .
+        </span>
       </h1>
-      <p className="mt-3 text-sm leading-6 text-mist-400">{description}</p>
+      <p className="mt-3 text-sm leading-6 text-ink-600">{description}</p>
     </div>
   );
 }

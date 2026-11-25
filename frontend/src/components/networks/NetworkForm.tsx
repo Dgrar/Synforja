@@ -319,7 +319,7 @@ export function NetworkForm({
         description={
           network
             ? "Ajusta la topología y los hiperparámetros. Los cambios sobre una red entrenada invalidan sus pesos."
-            : "Define capas, neuronas e hiperparámetros. La API validará la red antes de guardarla."
+            : "Define capas, neuronas e hiperparámetros. Validamos la red antes de guardarla."
         }
         actions={
           <Link
@@ -332,7 +332,7 @@ export function NetworkForm({
       />
 
       {network ? (
-        <div className="flex flex-wrap items-center gap-3 text-xs text-mist-400">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-ink-600">
           <StateBadge state={network.state} />
           <span>Guardada con id {network.id}</span>
         </div>
@@ -353,15 +353,16 @@ export function NetworkForm({
 
       <form
         onSubmit={handleSubmit}
+        noValidate
         className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] xl:items-start"
       >
         <div className="space-y-6">
-          <section className="surface rounded-2xl p-5 sm:p-6">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
             <div className="mb-5">
-              <h2 className="text-base font-semibold text-mist-50">
+              <h2 className="font-serif text-lg font-normal text-ink-950">
                 Identidad y topología
               </h2>
-              <p className="mt-1 text-xs leading-5 text-mist-400">
+              <p className="mt-1 text-xs leading-5 text-ink-600">
                 La primera capa recibe las entradas y la última produce la salida.
                 Las capas intermedias son ocultas.
               </p>
@@ -385,8 +386,8 @@ export function NetworkForm({
             <div className="mt-6">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-medium text-mist-100">Capas</h3>
-                  <p className="mt-0.5 text-xs text-mist-500">
+                  <h3 className="text-sm font-medium text-ink-900">Capas</h3>
+                  <p className="mt-0.5 text-xs text-ink-500">
                     Entre 2 y 20 capas. Máximo 2 048 neuronas por capa.
                   </p>
                 </div>
@@ -403,7 +404,7 @@ export function NetworkForm({
               </div>
 
               {fieldErrors.layers ? (
-                <p className="mb-3 text-xs text-coral-400">{fieldErrors.layers}</p>
+                <p className="mb-3 text-xs text-vermilion-400">{fieldErrors.layers}</p>
               ) : null}
 
               <div className="space-y-3">
@@ -417,12 +418,12 @@ export function NetworkForm({
                   return (
                     <div
                       key={index}
-                      className="rounded-xl border border-white/[0.08] bg-ink-950/35 p-3.5"
+                      className="rounded-[3px] border border-ink-950/15 bg-paper-50 p-3.5"
                     >
                       <div className="mb-3 flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-mist-300">
+                        <p className="text-xs font-medium text-ink-700">
                           Capa {index + 1}{" "}
-                          <span className="font-normal text-mist-500">
+                          <span className="font-normal text-ink-500">
                             · {role}
                           </span>
                         </p>
@@ -511,17 +512,17 @@ export function NetworkForm({
             </div>
           </section>
 
-          <section className="surface rounded-2xl p-5 sm:p-6">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
             <div className="mb-4 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-base font-semibold text-mist-50">
+                <h2 className="font-serif text-lg font-normal text-ink-950">
                   Topología
                 </h2>
-                <p className="mt-1 text-xs leading-5 text-mist-400">
+                <p className="mt-1 text-xs leading-5 text-ink-600">
                   Vista esquemática de la red. No se calculan salidas ni gradientes aquí.
                 </p>
               </div>
-              <span className="rounded-full border border-white/[0.1] px-2.5 py-1 font-mono text-[0.62rem] text-mist-500">
+              <span className="rounded-full border border-ink-950/20 px-2.5 py-1 font-mono text-[0.62rem] text-ink-500">
                 {formatNumber(totalNeurons)} neuronas
               </span>
             </div>
@@ -530,12 +531,12 @@ export function NetworkForm({
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-24">
-          <section className="surface rounded-2xl p-5 sm:p-6">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
             <div className="mb-5">
-              <h2 className="text-base font-semibold text-mist-50">
+              <h2 className="font-serif text-lg font-normal text-ink-950">
                 Entrenamiento
               </h2>
-              <p className="mt-1 text-xs leading-5 text-mist-400">
+              <p className="mt-1 text-xs leading-5 text-ink-600">
                 Estos valores se guardan con la red y definen cómo se entrenará.
               </p>
             </div>
@@ -629,7 +630,7 @@ export function NetworkForm({
                 hint={
                   editing
                     ? "Se conserva si no la modificas. Si la cambias, usa un entero seguro."
-                    : "Vacía para que la API genere una semilla; si la escribes, debe ser un entero seguro."
+                    : "Déjala vacía para que la generemos automáticamente; si la escribes, debe ser un entero seguro."
                 }
                 inputMode="numeric"
                 autoComplete="off"
@@ -638,30 +639,30 @@ export function NetworkForm({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-mint-400/15 bg-mint-400/[0.045] p-5 sm:p-6">
-            <p className="text-[0.68rem] font-medium uppercase tracking-[0.2em] text-mint-300/80">
+          <section className="rounded-[3px] border border-electric-400/15 bg-electric-400/[0.045] p-5 sm:p-6">
+            <p className="text-[0.68rem] font-medium uppercase tracking-[0.2em] text-electric-500">
               Resumen
             </p>
             <dl className="mt-4 space-y-3 text-sm">
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Capas</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Capas</dt>
+                <dd className="font-mono text-ink-900">
                   {formatNumber(layers.length)}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Neuronas</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Neuronas</dt>
+                <dd className="font-mono text-ink-900">
                   {formatNumber(totalNeurons)}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Épocas</dt>
-                <dd className="font-mono text-mist-100">{epochs || "—"}</dd>
+                <dt className="text-ink-600">Épocas</dt>
+                <dd className="font-mono text-ink-900">{epochs || "—"}</dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Loss</dt>
-                <dd className="font-mono uppercase text-mist-100">{loss}</dd>
+                <dt className="text-ink-600">Loss</dt>
+                <dd className="font-mono uppercase text-ink-900">{loss}</dd>
               </div>
             </dl>
           </section>

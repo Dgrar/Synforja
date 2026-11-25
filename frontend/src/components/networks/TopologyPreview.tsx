@@ -1,11 +1,11 @@
 import type { Activation, Layer } from "@/lib/types/api";
 
 const ACTIVATION_COLORS: Record<Activation, string> = {
-  relu: "#63e6b6",
-  sigmoid: "#7dd3fc",
-  tanh: "#c4b5fd",
-  softmax: "#f5c96d",
-  linear: "#b6c8bb",
+  relu: "#1f43ff",
+  sigmoid: "#9a651a",
+  tanh: "#c9431f",
+  softmax: "#7a4f0f",
+  linear: "#98917f",
 };
 
 const MAX_VISUAL_NODES = 12;
@@ -36,7 +36,7 @@ function nodePositions(layer: Layer, index: number, height: number): PositionedN
 export function TopologyPreview({ layers }: { layers: Layer[] }) {
   if (layers.length === 0) {
     return (
-      <div className="flex min-h-64 items-center justify-center rounded-xl border border-dashed border-white/12 text-sm text-mist-500">
+      <div className="flex min-h-64 items-center justify-center rounded-[3px] border border-dashed border-ink-950/20 text-sm text-ink-500">
         Añade al menos dos capas para ver la topología.
       </div>
     );
@@ -50,7 +50,7 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
   const width = Math.max(360, 34 + (layers.length - 1) * COLUMN_STEP + LAYER_WIDTH + 34);
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-ink-950/40">
+    <div className="overflow-x-auto rounded-[3px] border border-ink-950/15 bg-paper-50">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
@@ -65,8 +65,8 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
       >
         <defs>
           <linearGradient id="topology-bg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#63e6b6" stopOpacity="0.05" />
-            <stop offset="1" stopColor="#7dd3fc" stopOpacity="0.01" />
+            <stop offset="0" stopColor="#1f43ff" stopOpacity="0.05" />
+            <stop offset="1" stopColor="#c9431f" stopOpacity="0.02" />
           </linearGradient>
         </defs>
         <rect width={width} height={height} fill="url(#topology-bg)" />
@@ -93,8 +93,8 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
               key={index}
               d={path}
               fill="none"
-              stroke="#9df3ce"
-              strokeOpacity={0.14}
+              stroke="#1f43ff"
+              strokeOpacity={0.18}
               strokeWidth={0.8}
             />
           );
@@ -113,16 +113,17 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
                 y={50}
                 width={LAYER_WIDTH}
                 height={height - 92}
-                rx={16}
-                fill="rgba(255,255,255,0.022)"
+                rx={3}
+                fill="#fffdf4"
+                fillOpacity={0.55}
                 stroke={color}
-                strokeOpacity={0.22}
+                strokeOpacity={0.32}
               />
               <text
                 x={x + LAYER_WIDTH / 2}
                 y={24}
                 textAnchor="middle"
-                fill="#b6c8bb"
+                fill="#4d4a40"
                 fontSize="10"
                 fontWeight="600"
               >
@@ -132,7 +133,7 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
                 x={x + LAYER_WIDTH / 2}
                 y={38}
                 textAnchor="middle"
-                fill="#687d6e"
+                fill="#98917f"
                 fontSize="9"
               >
                 {layer.activation}
@@ -155,7 +156,7 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
                   x={x + LAYER_WIDTH / 2}
                   y={height - 50}
                   textAnchor="middle"
-                  fill="#8da395"
+                  fill="#98917f"
                   fontSize="9"
                 >
                   +{displaySize - MAX_VISUAL_NODES}
@@ -165,7 +166,7 @@ export function TopologyPreview({ layers }: { layers: Layer[] }) {
                 x={x + LAYER_WIDTH / 2}
                 y={height - 28}
                 textAnchor="middle"
-                fill="#e1eae3"
+                fill="#26251e"
                 fontSize="10"
                 fontWeight="600"
               >

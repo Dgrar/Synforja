@@ -13,7 +13,6 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { buttonStyles } from "@/components/ui/Button";
 import { useApiQuery } from "@/lib/hooks/useApiQuery";
 import { formatNumber } from "@/lib/format";
-import { API_URL } from "@/lib/config";
 import type { Dataset, Network } from "@/lib/types/api";
 
 export function Dashboard() {
@@ -55,7 +54,7 @@ export function Dashboard() {
 
       <section
         aria-label="Resumen del laboratorio"
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid divide-y divide-ink-950/20 border-y-2 border-ink-950 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4"
       >
         <StatCard
           label="Redes"
@@ -85,19 +84,19 @@ export function Dashboard() {
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(290px,0.55fr)]">
-        <section className="surface rounded-2xl p-5 sm:p-6">
+        <section className="surface rounded-[3px] p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[0.68rem] font-medium uppercase tracking-[0.2em] text-mist-500">
+              <p className="font-mono text-[0.6rem] uppercase tracking-[0.2em] text-ink-500">
                 Actividad reciente
               </p>
-              <h2 className="mt-1.5 text-lg font-semibold text-mist-50">
+              <h2 className="mt-1.5 font-serif text-xl font-normal text-ink-950">
                 Tus redes
               </h2>
             </div>
             <Link
               href="/networks"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-mint-300 transition hover:text-mint-200"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-electric-500 transition hover:text-electric-400"
             >
               Ver todas
               <Icon name="arrow-right" className="size-3.5" />
@@ -109,7 +108,7 @@ export function Dashboard() {
               <div className="space-y-4 py-2">
                 {[0, 1, 2].map((index) => (
                   <div key={index} className="flex items-center gap-3.5">
-                    <Skeleton className="size-10 shrink-0 rounded-xl" />
+                    <Skeleton className="size-10 shrink-0 rounded-[3px]" />
                     <div className="flex-1 space-y-2">
                       <Skeleton className="h-3 w-1/3" />
                       <Skeleton className="h-2.5 w-1/2" />
@@ -126,7 +125,7 @@ export function Dashboard() {
                 className="my-3"
               />
             ) : (
-              <div className="divide-y divide-white/[0.06]">
+              <div className="divide-y divide-ink-950/10">
                 {networks.slice(0, 4).map((network) => (
                   <NetworkRow key={network.id} network={network} />
                 ))}
@@ -136,11 +135,11 @@ export function Dashboard() {
         </section>
 
         <div className="space-y-6">
-          <section className="surface rounded-2xl p-5 sm:p-6">
-            <p className="text-[0.68rem] font-medium uppercase tracking-[0.2em] text-mist-500">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
+            <p className="font-mono text-[0.6rem] uppercase tracking-[0.2em] text-ink-500">
               Ruta rápida
             </p>
-            <h2 className="mt-1.5 text-lg font-semibold text-mist-50">
+            <h2 className="mt-1.5 font-serif text-xl font-normal text-ink-950">
               De datos a inferencia
             </h2>
             <ol className="mt-5 space-y-4">
@@ -150,12 +149,12 @@ export function Dashboard() {
                 ["03", "Entrena y observa", "Pérdida, métricas y runs."],
               ].map(([number, title, text]) => (
                 <li key={number} className="flex gap-3">
-                  <span className="font-mono text-[0.68rem] leading-5 text-mint-400">
+                  <span className="font-mono text-[0.68rem] leading-5 text-vermilion-400">
                     {number}
                   </span>
                   <div>
-                    <p className="text-sm font-medium text-mist-100">{title}</p>
-                    <p className="mt-0.5 text-xs leading-5 text-mist-500">
+                    <p className="text-sm font-medium text-ink-900">{title}</p>
+                    <p className="mt-0.5 text-xs leading-5 text-ink-500">
                       {text}
                     </p>
                   </div>
@@ -164,20 +163,17 @@ export function Dashboard() {
             </ol>
           </section>
 
-          <section className="rounded-2xl border border-mint-400/15 bg-mint-400/[0.045] p-5 sm:p-6">
-            <span className="inline-flex size-9 items-center justify-center rounded-xl border border-mint-400/20 bg-mint-400/[0.08] text-mint-300">
+          <section className="rounded-[3px] border border-electric-400/15 bg-electric-400/[0.045] p-5 sm:p-6">
+            <span className="inline-flex size-9 items-center justify-center rounded-[3px] border border-electric-400/25 bg-electric-400/[0.06] text-electric-500">
               <Icon name="spark" className="size-4" />
             </span>
-            <h2 className="mt-4 text-base font-semibold text-mist-50">
-              {error ? "API no disponible" : "Todo listo para empezar"}
+            <h2 className="mt-4 font-serif text-lg font-normal text-ink-950">
+              {error ? "No pudimos cargar tus datos" : "Todo listo para empezar"}
             </h2>
-            <p className="mt-2 text-xs leading-5 text-mist-400">
+            <p className="mt-2 text-xs leading-5 text-ink-600">
               {error
-                ? "No pudimos consultar tus datos. Revisa el backend y vuelve a intentarlo."
-                : "La API está conectada y tu sesión viaja en cookies HttpOnly."}
-            </p>
-            <p className="mt-3 truncate font-mono text-[0.62rem] text-mist-500">
-              {API_URL}
+                ? "Comprueba tu conexión e inténtalo de nuevo."
+                : "Tus redes y datasets están listos para continuar."}
             </p>
           </section>
         </div>

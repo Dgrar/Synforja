@@ -42,7 +42,7 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 const SESSION_EXPIRED_MESSAGE =
   "Tu sesión ha caducado. Inicia sesión de nuevo para continuar.";
 const COOKIE_CONFIRMATION_ERROR =
-  "No se pudo confirmar la sesión. Revisa que el navegador acepte las cookies de este sitio.";
+  "No se pudo confirmar tu sesión. Comprueba tu conexión e inténtalo de nuevo.";
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SessionStatus>("loading");

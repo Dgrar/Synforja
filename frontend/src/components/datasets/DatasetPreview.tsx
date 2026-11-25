@@ -51,13 +51,13 @@ export function DatasetPreview({
 
     return (
       <div className="space-y-3">
-        <div className="overflow-hidden rounded-xl border border-white/[0.08]">
+        <div className="overflow-hidden rounded-[3px] border border-ink-950/15">
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-xs">
               <caption className="sr-only">
                 Vista previa del dataset CSV
               </caption>
-              <thead className="bg-white/[0.035] text-mist-400">
+              <thead className="bg-paper-200 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-ink-600">
                 <tr>
                   <th scope="col" className="px-3 py-2.5 font-medium">
                     #
@@ -73,10 +73,10 @@ export function DatasetPreview({
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.06] text-mist-300">
+              <tbody className="divide-y divide-ink-950/10 text-ink-700">
                 {rows.map((row, rowIndex) => (
                   <tr key={rowIndex}>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-mist-500">
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-ink-500">
                       {rowIndex + 1}
                     </td>
                     {Array.from({ length: columns }, (_, columnIndex) => (
@@ -93,7 +93,7 @@ export function DatasetPreview({
             </table>
           </div>
         </div>
-        <p className="text-xs text-mist-500">
+        <p className="text-xs text-ink-500">
           {preview.truncated
             ? `Vista previa de las primeras ${formatNumber(rows.length)} filas de ${formatNumber(dataset.total_rows)}. Descarga el dataset para ver el contenido completo.`
             : `Vista previa de ${formatNumber(rows.length)} filas.`}
@@ -106,13 +106,13 @@ export function DatasetPreview({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-hidden rounded-xl border border-white/[0.08]">
+      <div className="overflow-hidden rounded-[3px] border border-ink-950/15">
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-xs">
             <caption className="sr-only">
               Vista previa del dataset JSON
             </caption>
-            <thead className="bg-white/[0.035] text-mist-400">
+            <thead className="bg-paper-200 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-ink-600">
               <tr>
                 <th scope="col" className="px-3 py-2.5 font-medium">
                   #
@@ -125,10 +125,10 @@ export function DatasetPreview({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/[0.06] text-mist-300">
+            <tbody className="divide-y divide-ink-950/10 text-ink-700">
               {rows.map((row, index) => (
                 <tr key={index}>
-                  <td className="whitespace-nowrap px-3 py-2 font-mono text-mist-500">
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-ink-500">
                     {index + 1}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 font-mono">
@@ -143,7 +143,7 @@ export function DatasetPreview({
           </table>
         </div>
       </div>
-      <p className="text-xs text-mist-500">
+      <p className="text-xs text-ink-500">
         {preview.truncated
           ? `Vista previa de los primeros ${formatNumber(rows.length)} ejemplos de ${formatNumber(dataset.total_rows)}. Descarga el dataset para ver el contenido completo.`
           : `Vista previa de ${formatNumber(rows.length)} ejemplos.`}

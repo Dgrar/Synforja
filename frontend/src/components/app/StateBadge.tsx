@@ -7,18 +7,18 @@ const stateStyles: Record<
 > = {
   draft: {
     label: "Borrador",
-    className: "border-white/[0.12] bg-white/[0.05] text-mist-300",
-    dot: "bg-mist-400",
+    className: "border-ink-950/[0.12] bg-ink-950/[0.05] text-ink-600",
+    dot: "bg-ink-600",
   },
   training: {
     label: "Entrenando",
-    className: "border-amber-400/25 bg-amber-400/[0.08] text-amber-400",
-    dot: "animate-pulse bg-amber-400",
+    className: "border-ochre-400/25 bg-ochre-400/[0.08] text-ochre-500",
+    dot: "animate-pulse bg-ochre-400",
   },
   trained: {
     label: "Entrenada",
-    className: "border-mint-400/25 bg-mint-400/[0.08] text-mint-300",
-    dot: "bg-mint-400",
+    className: "border-electric-400/25 bg-electric-400/[0.08] text-electric-500",
+    dot: "bg-electric-400",
   },
 };
 
@@ -28,7 +28,7 @@ export function StateBadge({ state }: { state: NetworkState }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.68rem] font-medium",
+        "inline-flex items-center gap-1.5 rounded-[2px] border px-2.5 py-1 font-mono text-[0.6rem] uppercase tracking-[0.1em]",
         style.className,
       )}
     >

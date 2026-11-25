@@ -260,7 +260,7 @@ export function DatasetForm() {
       <PageHeader
         eyebrow="Datasets · nuevo"
         title="Nuevo dataset"
-        description="Carga un CSV tabular o un JSON estructurado. La API validará estructura, tamaño y valores antes de guardarlo."
+        description="Carga un CSV tabular o un JSON estructurado. Revisamos estructura, tamaño y valores antes de guardarlo."
         actions={
           <Link
             href="/datasets"
@@ -286,15 +286,16 @@ export function DatasetForm() {
 
       <form
         onSubmit={handleSubmit}
+        noValidate
         className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] xl:items-start"
       >
         <div className="space-y-6">
-          <section className="surface rounded-2xl p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-mist-50">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
+            <h2 className="font-serif text-lg font-normal text-ink-950">
               Origen de datos
             </h2>
-            <p className="mt-1 text-xs leading-5 text-mist-400">
-              El archivo se lee en el navegador y se envía como texto a la API.
+            <p className="mt-1 text-xs leading-5 text-ink-600">
+              Leemos el archivo y validamos su contenido antes de guardarlo.
             </p>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -328,16 +329,16 @@ export function DatasetForm() {
 
             <div className="mt-6">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm font-medium text-mist-100">Contenido</p>
-                <div className="inline-flex rounded-lg border border-white/[0.08] bg-ink-950/50 p-1">
+                <p className="text-sm font-medium text-ink-900">Contenido</p>
+                <div className="inline-flex rounded-[3px] border border-ink-950/15 bg-paper-50 p-1">
                   <button
                     type="button"
                     aria-pressed={inputMode === "file"}
                     onClick={() => changeInputMode("file")}
                     className={
                       inputMode === "file"
-                        ? "rounded-md bg-mint-400/15 px-3 py-1.5 text-xs font-medium text-mint-200"
-                        : "rounded-md px-3 py-1.5 text-xs text-mist-400 transition hover:text-mist-100"
+                        ? "rounded-[2px] bg-electric-400 px-3 py-1.5 text-xs font-medium text-paper-100"
+                        : "rounded-[2px] px-3 py-1.5 text-xs text-ink-600 transition hover:text-ink-900"
                     }
                   >
                     Archivo
@@ -348,8 +349,8 @@ export function DatasetForm() {
                     onClick={() => changeInputMode("text")}
                     className={
                       inputMode === "text"
-                        ? "rounded-md bg-mint-400/15 px-3 py-1.5 text-xs font-medium text-mint-200"
-                        : "rounded-md px-3 py-1.5 text-xs text-mist-400 transition hover:text-mist-100"
+                        ? "rounded-[2px] bg-electric-400 px-3 py-1.5 text-xs font-medium text-paper-100"
+                        : "rounded-[2px] px-3 py-1.5 text-xs text-ink-600 transition hover:text-ink-900"
                     }
                   >
                     Pegar texto
@@ -369,15 +370,15 @@ export function DatasetForm() {
                     className="sr-only"
                   />
                   {fileName ? (
-                    <div className="flex items-center gap-3 rounded-xl border border-mint-400/20 bg-mint-400/[0.045] p-4">
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-mint-400/20 bg-mint-400/[0.08] text-mint-300">
+                    <div className="flex items-center gap-3 rounded-[3px] border border-electric-400/20 bg-electric-400/[0.045] p-4">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-[3px] border border-electric-400/20 bg-electric-400/[0.08] text-electric-500">
                         <Icon name="file" className="size-4" />
                       </span>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-mist-50">
+                        <p className="truncate text-sm font-medium text-ink-950">
                           {fileName}
                         </p>
-                        <p className="mt-0.5 text-xs text-mist-500">
+                        <p className="mt-0.5 text-xs text-ink-500">
                           {fileStatusLabel(readingFile, fileSize, contentBytes)}
                         </p>
                       </div>
@@ -393,21 +394,21 @@ export function DatasetForm() {
                   ) : (
                     <label
                       htmlFor="dataset-file"
-                      className="flex cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-white/15 bg-white/[0.02] px-6 py-10 text-center transition hover:border-mint-400/30 hover:bg-mint-400/[0.03] focus-within:border-mint-400/50 focus-within:ring-2 focus-within:ring-mint-400/15"
+                      className="flex cursor-pointer flex-col items-center justify-center rounded-[3px] border border-dashed border-ink-950/20 bg-paper-50 px-6 py-10 text-center transition hover:border-electric-400/40 hover:bg-electric-400/[0.03] focus-within:border-electric-400/50 focus-within:ring-2 focus-within:ring-electric-400/15"
                     >
-                      <span className="flex size-11 items-center justify-center rounded-xl border border-mint-400/20 bg-mint-400/[0.07] text-mint-300">
+                      <span className="flex size-11 items-center justify-center rounded-[3px] border border-electric-400/20 bg-electric-400/[0.07] text-electric-500">
                         <Icon name="upload" className="size-5" />
                       </span>
-                      <span className="mt-3 text-sm font-medium text-mist-100">
+                      <span className="mt-3 text-sm font-medium text-ink-900">
                         Seleccionar archivo {sourceType.toUpperCase()}
                       </span>
-                      <span className="mt-1 text-xs text-mist-500">
+                      <span className="mt-1 text-xs text-ink-500">
                         Hasta 5 MB · el contenido se valida al enviarlo
                       </span>
                     </label>
                   )}
                   {fieldErrors.content ? (
-                    <p className="mt-2 text-xs text-coral-400">
+                    <p className="mt-2 text-xs text-vermilion-400">
                       {fieldErrors.content}
                     </p>
                   ) : null}
@@ -463,12 +464,12 @@ export function DatasetForm() {
           </section>
 
           {violations && violations.length > 0 ? (
-            <section className="surface rounded-2xl p-5 sm:p-6">
+            <section className="surface rounded-[3px] p-5 sm:p-6">
               <div className="mb-4">
-                <h2 className="text-base font-semibold text-mist-50">
+                <h2 className="font-serif text-lg font-normal text-ink-950">
                   Reporte de violaciones
                 </h2>
-                <p className="mt-1 text-xs leading-5 text-mist-400">
+                <p className="mt-1 text-xs leading-5 text-ink-600">
                   Corrige estas entradas y vuelve a enviar el dataset. No se guardó
                   ningún dato.
                 </p>
@@ -482,29 +483,29 @@ export function DatasetForm() {
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-24">
-          <section className="surface rounded-2xl p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-mist-50">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
+            <h2 className="font-serif text-lg font-normal text-ink-950">
               Formato esperado
             </h2>
             {sourceType === "csv" ? (
-              <div className="mt-4 space-y-3 text-xs leading-5 text-mist-400">
+              <div className="mt-4 space-y-3 text-xs leading-5 text-ink-600">
                 <p>
                   CSV sin cabecera. Cada fila debe tener el mismo número de
                   columnas y todos los valores deben ser números finitos.
                 </p>
                 <p>
-                  Las primeras <span className="font-mono text-mist-200">N</span>{" "}
+                  Las primeras <span className="font-mono text-ink-800">N</span>{" "}
                   columnas son entradas y el resto salidas esperadas.{" "}
-                  <span className="font-mono text-mist-200">input_cols</span>{" "}
+                  <span className="font-mono text-ink-800">input_cols</span>{" "}
                   indica cuántas son de entrada.
                 </p>
               </div>
             ) : (
-              <div className="mt-4 space-y-3 text-xs leading-5 text-mist-400">
+              <div className="mt-4 space-y-3 text-xs leading-5 text-ink-600">
                 <p>
                   JSON con exactamente dos colecciones:{" "}
-                  <span className="font-mono text-mist-200">inputs</span> y{" "}
-                  <span className="font-mono text-mist-200">expects</span>.
+                  <span className="font-mono text-ink-800">inputs</span> y{" "}
+                  <span className="font-mono text-ink-800">expects</span>.
                 </p>
                 <p>
                   Cada una contiene vectores numéricos. Deben tener el mismo
@@ -512,38 +513,38 @@ export function DatasetForm() {
                 </p>
               </div>
             )}
-            <div className="mt-4 rounded-lg border border-white/[0.07] bg-ink-950/45 p-3 font-mono text-[0.65rem] leading-5 text-mist-500">
+            <div className="mt-4 rounded-[3px] border border-ink-950/15 bg-paper-50 p-3 font-mono text-[0.65rem] leading-5 text-ink-500">
               {sourceType === "csv"
                 ? "1,0,1\n0,1,1\n1,1,0"
                 : '{\n  "inputs": [[1, 0]],\n  "expects": [[1]]\n}'}
             </div>
           </section>
 
-          <section className="rounded-2xl border border-mint-400/15 bg-mint-400/[0.045] p-5 sm:p-6">
-            <p className="text-[0.68rem] font-medium uppercase tracking-[0.2em] text-mint-300/80">
+          <section className="rounded-[3px] border border-electric-400/15 bg-electric-400/[0.045] p-5 sm:p-6">
+            <p className="text-[0.68rem] font-medium uppercase tracking-[0.2em] text-electric-500">
               Resumen
             </p>
             <dl className="mt-4 space-y-3 text-sm">
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Formato</dt>
-                <dd className="font-mono uppercase text-mist-100">{sourceType}</dd>
+                <dt className="text-ink-600">Formato</dt>
+                <dd className="font-mono uppercase text-ink-900">{sourceType}</dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Origen</dt>
-                <dd className="text-mist-100">
+                <dt className="text-ink-600">Origen</dt>
+                <dd className="text-ink-900">
                   {inputMode === "file" ? "Archivo" : "Texto pegado"}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Tamaño</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Tamaño</dt>
+                <dd className="font-mono text-ink-900">
                   {formatBytes(contentBytes)}
                 </dd>
               </div>
               {sourceType === "csv" ? (
                 <div className="flex items-center justify-between gap-4">
-                  <dt className="text-mist-400">Entradas</dt>
-                  <dd className="font-mono text-mist-100">{inputCols || "—"}</dd>
+                  <dt className="text-ink-600">Entradas</dt>
+                  <dd className="font-mono text-ink-900">{inputCols || "—"}</dd>
                 </div>
               ) : null}
             </dl>

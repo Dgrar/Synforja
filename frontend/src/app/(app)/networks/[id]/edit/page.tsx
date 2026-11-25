@@ -21,7 +21,7 @@ export default function EditNetworkPage() {
   if (!validId) {
     return (
       <div className="space-y-6">
-        <p className="text-sm text-mist-400">La red solicitada no es válida.</p>
+        <p className="text-sm text-ink-600">La red solicitada no es válida.</p>
         <Link
           href="/networks"
           className={buttonStyles({ variant: "secondary", size: "sm" })}
@@ -37,8 +37,8 @@ export default function EditNetworkPage() {
       <div className="space-y-6">
         <Skeleton className="h-16 w-full max-w-xl" />
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <Skeleton className="h-[34rem] rounded-2xl" />
-          <Skeleton className="h-[28rem] rounded-2xl" />
+          <Skeleton className="h-[34rem] rounded-[3px]" />
+          <Skeleton className="h-[28rem] rounded-[3px]" />
         </div>
       </div>
     );

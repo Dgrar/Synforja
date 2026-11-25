@@ -27,7 +27,7 @@ export function Field({
     <div className="space-y-2">
       <label
         htmlFor={inputId}
-        className="block text-sm font-medium text-mist-100"
+        className="block text-sm font-medium text-ink-900"
       >
         {label}
       </label>
@@ -37,18 +37,18 @@ export function Field({
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
         className={cn(
-          "h-11 w-full rounded-xl border border-white/12 bg-ink-950/60 px-3.5 text-sm text-mist-50 outline-none transition placeholder:text-mist-400/60 hover:border-white/20 focus:border-mint-400/70 focus:bg-ink-950 focus:ring-2 focus:ring-mint-400/15 disabled:cursor-not-allowed disabled:opacity-60",
-          error && "border-coral-400/60 focus:border-coral-400 focus:ring-coral-400/15",
+          "h-11 w-full rounded-[3px] border border-ink-950/20 bg-paper-50 px-3.5 text-sm text-ink-950 outline-none transition placeholder:text-ink-600/60 hover:border-ink-950/35 focus:border-electric-400 focus:bg-paper-50 focus:ring-2 focus:ring-electric-400/15 disabled:cursor-not-allowed disabled:opacity-60",
+          error && "border-vermilion-500/50 focus:border-vermilion-500 focus:ring-vermilion-500/15",
           className,
         )}
       />
       {hint ? (
-        <p id={hintId} className="text-xs leading-5 text-mist-400">
+        <p id={hintId} className="text-xs leading-5 text-ink-600">
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p id={errorId} className="text-xs leading-5 text-coral-400">
+        <p id={errorId} className="text-xs leading-5 text-vermilion-500">
           {error}
         </p>
       ) : null}

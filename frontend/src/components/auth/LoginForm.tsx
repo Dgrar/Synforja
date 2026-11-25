@@ -71,7 +71,7 @@ export function LoginForm() {
       <AuthIntro
         eyebrow="Acceso"
         title="Vuelve a tu laboratorio"
-        description="Tus redes y datasets te esperan. La sesión se guarda de forma segura en cookies HttpOnly."
+        description="Tus redes y datasets te esperan. Entra para continuar donde lo dejaste."
       />
 
       {error ? (
@@ -120,16 +120,16 @@ export function LoginForm() {
         </Button>
       </form>
 
-      <p className="mt-6 flex items-center gap-2 text-xs leading-5 text-mist-500">
-        <Icon name="lock" className="size-3.5 shrink-0 text-mint-400/80" />
-        No guardamos tokens en el navegador. La API valida cada operación.
+      <p className="mt-6 flex items-center gap-2 text-xs leading-5 text-ink-500">
+        <Icon name="lock" className="size-3.5 shrink-0 text-electric-500" />
+        Tu sesión se mantiene mientras trabajas.
       </p>
 
-      <p className="mt-7 text-sm text-mist-400">
+      <p className="mt-7 text-sm text-ink-600">
         ¿Aún no tienes cuenta?{" "}
         <Link
           href={registerHref}
-          className="font-medium text-mint-300 transition hover:text-mint-200"
+          className="font-medium text-electric-500 transition hover:text-electric-400"
         >
           Crear una cuenta
         </Link>

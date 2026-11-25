@@ -64,13 +64,13 @@ export function ConfirmDialog({
       ref={dialogRef}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
-      className="m-auto w-[min(92vw,30rem)] max-w-none rounded-2xl border border-white/10 bg-ink-900 p-0 text-mist-100 shadow-2xl backdrop:bg-ink-950/80 backdrop:backdrop-blur-sm"
+      className="m-auto w-[min(92vw,30rem)] max-w-none rounded-[3px] border border-ink-950/20 bg-paper-50 p-0 text-ink-900 shadow-2xl backdrop:bg-ink-950/45 backdrop:backdrop-blur-sm"
     >
       <div className="p-6">
-        <h2 id={titleId} className="text-lg font-semibold text-mist-50">
+        <h2 id={titleId} className="font-serif text-xl font-normal text-ink-950">
           {title}
         </h2>
-        <p id={descriptionId} className="mt-2 text-sm leading-6 text-mist-400">
+        <p id={descriptionId} className="mt-2 text-sm leading-6 text-ink-600">
           {description}
         </p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

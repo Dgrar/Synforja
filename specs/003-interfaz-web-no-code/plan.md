@@ -325,12 +325,12 @@ suite rota.
 
 ## 11. Criterios de cierre
 
-- [ ] Sesión cookie-only implementada y probada (`/csrf`, `/me`, `/refresh`, `/logout`, CSRF, CORS con
+- [x] Sesión cookie-only implementada y probada (`/csrf`, `/me`, `/refresh`, `/logout`, CSRF, CORS con
       credenciales); login/register sin tokens en JSON; suite backend completa verde.
-- [ ] Sin `localStorage`/`sessionStorage` para credenciales; cookies HttpOnly verificadas en E2E.
-- [ ] Los 38 RF verificados contra el E2E manual (evidencia por RF en `tasks.md`).
-- [ ] RNF-1..RNF-6 medidos y dentro de umbral.
-- [ ] `npm run lint`, `npm run build`, `npm test` verdes; `rav` actualizado.
-- [ ] Responsive 360–1920, teclado/foco/etiquetas y consola limpia.
-- [ ] `AGENTS.md` actualizado (versiones, estructura, API, comandos, F6 y §14) sin contradicciones.
-- [ ] Spec 003 sigue siendo la fuente de verdad: ningún requisito nuevo fuera de ella.
+- [x] Sin `localStorage`/`sessionStorage` para credenciales; cookies HttpOnly verificadas en E2E.
+- [x] Los 38 RF verificados contra el E2E manual (evidencia por RF en `tasks.md`).
+- [x] RNF-1..RNF-6 medidos y dentro de umbral.
+- [x] `npm run lint`, `npm run build`, `npm test` verdes; `rav` actualizado.
+- [x] Responsive 360–1920, teclado/foco/etiquetas y consola limpia.
+- [x] `AGENTS.md` actualizado (versiones, estructura, API, comandos, F6 y §14) sin contradicciones.
+- [x] Spec 003 sigue siendo la fuente de verdad: ningún requisito nuevo fuera de ella.

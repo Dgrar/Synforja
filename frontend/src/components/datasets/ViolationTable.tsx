@@ -13,13 +13,13 @@ export function ViolationTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-coral-400/20">
+    <div className="overflow-hidden rounded-[3px] border border-vermilion-400/20">
       <div className="overflow-x-auto">
         <table className="min-w-full text-left text-xs">
           <caption className="sr-only">
             Violaciones detectadas en el dataset
           </caption>
-          <thead className="bg-coral-400/[0.06] text-coral-300">
+          <thead className="bg-vermilion-400/[0.08] font-mono text-[0.6rem] uppercase tracking-[0.1em] text-vermilion-500">
             <tr>
               <th scope="col" className="px-3 py-2.5 font-medium">
                 Fila
@@ -32,7 +32,7 @@ export function ViolationTable({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-coral-400/10 text-mist-300">
+          <tbody className="divide-y divide-vermilion-400/10 text-ink-700">
             {violations.map((violation, index) => (
               <tr key={`${violation.row}-${violation.col}-${index}`}>
                 <td className="whitespace-nowrap px-3 py-2 font-mono">
@@ -47,7 +47,7 @@ export function ViolationTable({
           </tbody>
         </table>
       </div>
-      <p className="border-t border-coral-400/10 bg-coral-400/[0.04] px-3 py-2 text-[0.68rem] text-coral-300/90">
+      <p className="border-t border-vermilion-400/15 bg-vermilion-400/[0.05] px-3 py-2 font-mono text-[0.62rem] uppercase tracking-[0.08em] text-vermilion-500">
         {total > violations.length
           ? `Mostrando ${formatNumber(violations.length)} de ${formatNumber(total)} violaciones.`
           : `${formatNumber(total)} ${total === 1 ? "violación" : "violaciones"}.`}

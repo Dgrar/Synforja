@@ -5,10 +5,10 @@ import { cn } from "@/lib/cn";
 type AlertTone = "error" | "info" | "success" | "warning";
 
 const tones: Record<AlertTone, string> = {
-  error: "border-coral-400/30 bg-coral-400/[0.08] text-coral-400",
-  info: "border-mint-400/25 bg-mint-400/[0.06] text-mist-100",
-  success: "border-mint-400/30 bg-mint-400/[0.08] text-mint-300",
-  warning: "border-amber-400/30 bg-amber-400/[0.08] text-amber-400",
+  error: "border-vermilion-400/30 bg-vermilion-400/[0.06] text-vermilion-500",
+  info: "border-electric-400/25 bg-electric-400/[0.05] text-ink-900",
+  success: "border-electric-400/30 bg-electric-400/[0.06] text-electric-500",
+  warning: "border-ochre-400/30 bg-ochre-400/[0.07] text-ochre-500",
 };
 
 export function Alert({
@@ -28,7 +28,7 @@ export function Alert({
     <div
       role={tone === "error" ? "alert" : "status"}
       className={cn(
-        "rounded-xl border px-4 py-3 text-sm leading-6",
+        "rounded-[3px] border px-4 py-3 text-sm leading-6",
         tones[tone],
         className,
       )}

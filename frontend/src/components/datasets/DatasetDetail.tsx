@@ -27,12 +27,12 @@ function safeFilename(name: string): string {
 function DetailLoading() {
   return (
     <div className="space-y-7">
-      <div className="space-y-3 border-b border-white/8 pb-7">
+      <div className="space-y-3 border-b border-ink-950/20 pb-7">
         <Skeleton className="h-3 w-24" />
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-3 w-96 max-w-full" />
       </div>
-      <Skeleton className="h-[30rem] rounded-2xl" />
+      <Skeleton className="h-[30rem] rounded-[3px]" />
     </div>
   );
 }
@@ -170,13 +170,13 @@ export function DatasetDetail({ id }: { id: number }) {
       ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)] xl:items-start">
-        <section className="surface rounded-2xl p-5 sm:p-6">
+        <section className="surface rounded-[3px] p-5 sm:p-6">
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-mist-50">
+              <h2 className="font-serif text-lg font-normal text-ink-950">
                 Vista previa
               </h2>
-              <p className="mt-1 text-xs leading-5 text-mist-400">
+              <p className="mt-1 text-xs leading-5 text-ink-600">
                 {dataset.source_type === "csv"
                   ? "Primeras 200 filas del CSV, sin cabecera."
                   : "Primeros 100 ejemplos del JSON."}
@@ -188,7 +188,7 @@ export function DatasetDetail({ id }: { id: number }) {
           {content && !contentQuery.error ? (
             <DatasetPreview dataset={dataset} content={content.content} />
           ) : contentQuery.error ? (
-            <p className="rounded-xl border border-dashed border-white/12 px-4 py-10 text-center text-sm text-mist-500">
+            <p className="rounded-[3px] border border-dashed border-ink-950/12 px-4 py-10 text-center text-sm text-ink-500">
               La vista previa no está disponible hasta que el contenido cargue
               correctamente.
             </p>
@@ -196,55 +196,55 @@ export function DatasetDetail({ id }: { id: number }) {
         </section>
 
         <aside className="space-y-6">
-          <section className="surface rounded-2xl p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-mist-50">
+          <section className="surface rounded-[3px] p-5 sm:p-6">
+            <h2 className="font-serif text-lg font-normal text-ink-950">
               Metadatos
             </h2>
             <dl className="mt-5 space-y-3.5 text-sm">
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Formato</dt>
+                <dt className="text-ink-600">Formato</dt>
                 <dd>
                   <SourceBadge source={dataset.source_type} />
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Filas</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Filas</dt>
+                <dd className="font-mono text-ink-900">
                   {formatNumber(dataset.total_rows)}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Entradas</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Entradas</dt>
+                <dd className="font-mono text-ink-900">
                   {formatNumber(dataset.input_cols)}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Salidas</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Salidas</dt>
+                <dd className="font-mono text-ink-900">
                   {formatNumber(dataset.output_cols)}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">Tamaño</dt>
-                <dd className="font-mono text-mist-100">
+                <dt className="text-ink-600">Tamaño</dt>
+                <dd className="font-mono text-ink-900">
                   {content ? formatBytes(contentBytes) : "—"}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <dt className="text-mist-400">ID</dt>
-                <dd className="font-mono text-mist-100">{dataset.id}</dd>
+                <dt className="text-ink-600">ID</dt>
+                <dd className="font-mono text-ink-900">{dataset.id}</dd>
               </div>
             </dl>
           </section>
 
-          <section className="rounded-2xl border border-mint-400/15 bg-mint-400/[0.045] p-5 sm:p-6">
-            <h2 className="text-base font-semibold text-mist-50">
+          <section className="rounded-[3px] border border-electric-400/15 bg-electric-400/[0.045] p-5 sm:p-6">
+            <h2 className="font-serif text-lg font-normal text-ink-950">
               Contenido completo
             </h2>
-            <p className="mt-2 text-xs leading-5 text-mist-400">
-              La descarga entrega el contenido íntegro guardado por la API, no
-              la vista previa limitada.
+            <p className="mt-2 text-xs leading-5 text-ink-600">
+              La descarga entrega el contenido íntegro guardado, no la vista
+              previa limitada.
             </p>
             <Button
               variant="secondary"

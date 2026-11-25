@@ -163,17 +163,16 @@ export function RegisterForm() {
         </Button>
       </form>
 
-      <p className="mt-6 flex items-center gap-2 text-xs leading-5 text-mist-500">
-        <Icon name="lock" className="size-3.5 shrink-0 text-mint-400/80" />
-        La contraseña viaja solo a la API. La sesión se mantiene en cookies
-        HttpOnly.
+      <p className="mt-6 flex items-center gap-2 text-xs leading-5 text-ink-500">
+        <Icon name="lock" className="size-3.5 shrink-0 text-electric-500" />
+        Tu espacio quedará listo para diseñar redes y cargar tus datos.
       </p>
 
-      <p className="mt-7 text-sm text-mist-400">
+      <p className="mt-7 text-sm text-ink-600">
         ¿Ya tienes cuenta?{" "}
         <Link
           href={loginHref}
-          className="font-medium text-mint-300 transition hover:text-mint-200"
+          className="font-medium text-electric-500 transition hover:text-electric-400"
         >
           Iniciar sesión
         </Link>

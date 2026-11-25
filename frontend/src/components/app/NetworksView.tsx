@@ -47,11 +47,11 @@ export function NetworksView() {
       {error ? <QueryError error={error} onRetry={reload} /> : null}
 
       {loading ? (
-        <div className="surface rounded-2xl p-5 sm:p-6">
+        <div className="surface rounded-[3px] p-5 sm:p-6">
           <div className="space-y-5">
             {[0, 1, 2, 3].map((index) => (
               <div key={index} className="flex items-center gap-3.5">
-                <Skeleton className="size-10 shrink-0 rounded-xl" />
+                <Skeleton className="size-10 shrink-0 rounded-[3px]" />
                 <div className="flex-1 space-y-2">
                   <Skeleton className="h-3 w-1/3" />
                   <Skeleton className="h-2.5 w-1/2" />
@@ -82,18 +82,18 @@ export function NetworksView() {
           }
         />
       ) : (
-        <section className="surface overflow-hidden rounded-2xl">
-          <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-4 sm:px-6">
-            <p className="text-xs text-mist-400">
+        <section className="surface overflow-hidden rounded-[3px]">
+          <div className="flex items-center justify-between border-b border-ink-950/15 px-5 py-4 sm:px-6">
+            <p className="text-xs text-ink-600">
               {formatNumber(networks.length)}{" "}
               {pluralize(networks.length, "red", "redes")}
             </p>
-            <span className="inline-flex items-center gap-1.5 text-[0.68rem] text-mist-500">
-              <span className="size-1.5 rounded-full bg-mint-400" />
-              Sincronizado con la API
+            <span className="inline-flex items-center gap-1.5 font-mono text-[0.6rem] uppercase tracking-[0.12em] text-ink-500">
+              <span className="size-1.5 rounded-full bg-electric-400" />
+              Sincronizado
             </span>
           </div>
-          <div className="divide-y divide-white/[0.06] px-5 sm:px-6">
+          <div className="divide-y divide-ink-950/10 px-5 sm:px-6">
             {networks.map((network) => (
               <NetworkRow key={network.id} network={network} />
             ))}

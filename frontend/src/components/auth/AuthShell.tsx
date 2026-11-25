@@ -12,7 +12,7 @@ const features = [
   {
     icon: "activity" as const,
     title: "Entrenamiento observable",
-    text: "La pérdida avanza época a época, sin cajas negras.",
+    text: "La pérdida avanza época a época, para que puedas seguir el proceso.",
   },
   {
     icon: "database" as const,
@@ -39,30 +39,31 @@ export function AuthShell({ children }: { children: ReactNode }) {
             <div className="w-full max-w-[27rem] animate-fade-up">{children}</div>
           </div>
 
-          <p className="text-xs text-mist-500">
+          <p className="text-xs text-ink-500">
             © 2026 Synforja · Laboratorio de redes neuronales
           </p>
         </main>
 
-        <aside className="relative hidden overflow-hidden border-l border-white/[0.07] bg-ink-900/40 p-10 lg:flex lg:flex-col lg:justify-between xl:p-14">
+        <aside className="relative hidden overflow-hidden border-l border-ink-950/20 bg-paper-200 p-10 lg:flex lg:flex-col lg:justify-between xl:p-14">
           <div
             aria-hidden="true"
-            className="absolute -right-32 -top-24 size-[32rem] rounded-full bg-mint-400/[0.09] blur-3xl"
+            className="absolute -right-32 -top-24 size-[32rem] rounded-full bg-electric-400/[0.09] blur-3xl"
           />
           <div
             aria-hidden="true"
-            className="absolute -bottom-40 -left-20 size-[26rem] rounded-full bg-mint-600/[0.06] blur-3xl"
+            className="absolute -bottom-40 -left-20 size-[26rem] rounded-full bg-electric-600/[0.06] blur-3xl"
           />
 
           <div className="relative">
-            <span className="inline-flex items-center gap-2 rounded-full border border-mint-400/20 bg-mint-400/[0.06] px-3 py-1.5 text-[0.68rem] font-medium uppercase tracking-[0.18em] text-mint-300">
-              <span className="size-1.5 rounded-full bg-mint-400" />
-              Sin cajas negras
+            <span className="inline-flex items-center gap-2 border border-electric-400/25 bg-electric-400/[0.06] px-3 py-1.5 font-mono text-[0.6rem] uppercase tracking-[0.16em] text-electric-500">
+              <span className="size-1.5 rounded-full bg-electric-500" />
+              Aprende cada paso
             </span>
-            <h2 className="mt-7 max-w-md text-4xl font-semibold leading-[1.08] tracking-tight text-mist-50 xl:text-5xl">
-              De la idea a la <span className="text-gradient-mint">inferencia</span>.
+            <h2 className="mt-7 max-w-md font-serif text-4xl font-normal leading-[1.05] tracking-tight text-ink-950 xl:text-[3.4rem]">
+              De la idea a la{" "}
+              <span className="text-vermilion-500 italic">inferencia</span>.
             </h2>
-            <p className="mt-5 max-w-md text-sm leading-7 text-mist-400">
+            <p className="mt-5 max-w-md text-sm leading-7 text-ink-600">
               Un laboratorio para entender qué pasa dentro de una red neuronal
               mientras la construyes, la entrenas y la pones a prueba.
             </p>
@@ -75,14 +76,14 @@ export function AuthShell({ children }: { children: ReactNode }) {
           <ul className="relative space-y-4">
             {features.map((feature) => (
               <li key={feature.title} className="flex gap-3.5">
-                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-mint-300">
+                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[3px] border border-ink-950/15 bg-paper-50 text-electric-500">
                   <Icon name={feature.icon} className="size-4" />
                 </span>
                 <div>
-                  <p className="text-sm font-medium text-mist-100">
+                  <p className="text-sm font-medium text-ink-900">
                     {feature.title}
                   </p>
-                  <p className="mt-0.5 text-xs leading-5 text-mist-400">
+                  <p className="mt-0.5 text-xs leading-5 text-ink-600">
                     {feature.text}
                   </p>
                 </div>
@@ -138,7 +139,7 @@ function NetworkIllustration() {
     <svg
       viewBox="0 0 580 340"
       aria-hidden="true"
-      className="w-full max-w-lg text-mint-400"
+      className="w-full max-w-lg text-electric-400"
     >
       <defs>
         <linearGradient id="auth-edge" x1="0" y1="0" x2="1" y2="0">

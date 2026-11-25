@@ -64,7 +64,7 @@ Synforja/
 ├── engine-core/           # crate Rust (cdylib para Python)
 │   └── src/               # matrix/, neural_network/, nn_config/
 ├── python/engine_core/    # wrapper Python + _engine.pyd (maturin mixed)
-└── frontend/              # Next.js 16 (F6): auth, shell, panel, listas; Vitest
+└── frontend/              # Next.js 16 (F6): auth, CRUD, entrenamiento, corridas, predicción; Vitest
     └── src/               # app/, components/, lib/, tests/
 ```
 
@@ -128,6 +128,21 @@ visual de redes y datasets (alta, edición, detalle, borrado, previews, descarga
 confirmación de pérdida de pesos). Verificado con **32 tests Vitest**, build estático
 de 10 rutas y e2e Chrome **31/31** sobre build de producción; RNF-2 p95 **104,7 ms**
 (< 200 ms, 20 capas).
+**Bloque D** (25-11-2026): entrenamiento desde la interfaz — dataset y modalidad
+(vivo/one-shot), stream SSE consumido con `fetch`+`ReadableStream`, curva SVG con
+lote de render ≤ 100 ms y downsample visual > 2 000 épocas, cancelación por
+`AbortController`, relanzamiento tras corte, y guardas de salida/recarga.
+**Bloque E** (25-11-2026): `/networks/[id]/runs` con comparación de 2 a 4 (la quinta
+se rechaza), `/networks/[id]/predict` con vector parseado y salida de la API en orden,
+y descarga de pesos como blob (`red-<id>.json`, sin archivo ante 409/413). Lint,
+**51 tests Vitest** y build de **14 rutas** verdes.
+**Cierre T15** (25-11-2026): E2E sobre build de producción + uvicorn + Redis con Chrome
+headless por CDP, **49/49 PASS** (CU-1..CU-9 y los 38 RF). RNF medidos: RNF-1 p95
+**7,8 ms**, RNF-2 p95 **36 ms**, RNF-3 sin tokens en storage/URL, RNF-4 16 combinaciones
+360–1920 sin desbordamiento, RNF-5 **0 excepciones** de consola, RNF-6 foco visible y 0
+controles sin etiqueta. Corregidos en el cierre: `noValidate` en los formularios de red y
+dataset (la validación nativa impedía ver RF-11) y `min-w-0` en el detalle de red (el SVG
+desbordaba a 360 px). F6 **cerrada**.
 
 ## 9. Motor Rust (`engine-core`)
 Responsabilidad única: **matemática numérica de la red**.
@@ -174,7 +189,7 @@ rav run fe_install / fe_start   # frontend Next.js en :3000
 | F4 — Entrenamiento | SGD, split train/test, shuffle, métricas (XOR/seno/diabetes) | **HECHA** (pendiente seed en contrato, §14.15) |
 | F5a — CRUD | modelos `Network`/`Dataset` + routers Ninja | **HECHA** (spec 000 completa: A+B+C+D, 112 tests) |
 | F5b — Endpoints numéricos | train/predict via `engine_core`, límite de épocas | **HECHA** (001+002 cerradas; streaming SSE async, §14.27) |
-| F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | **EN CURSO** — A+B+C verificados (auth/shell/CRUD); restan D+E |
+| F6 — Frontend | Next.js: editor no-code, métricas, login (sin explicación teórica) | **HECHA** — A+B+C+D+E+T15 (e2e 49/49, RNF-1..6 dentro de umbral) |
 
 ## 13. Definition of Done
 - [ ] Compila (`cargo build` / `manage.py check`) y pasa tests sin warnings nuevos.
@@ -284,6 +299,25 @@ Registro de decisiones. No se cambian en silencio: se actualizan aquí y se expl
     Vitest**, build de 10 rutas y e2e Chrome **31/31** sobre build de producción; RNF-2
     p95 **104,7 ms** (< 200 ms, 20 capas). El E2E cubre archivo local, CSV íntegro,
     descarga, RF-12 (trained → confirmación → draft), borrados y guardas de sesión.
+30. **Bloques D y E de F6** (25-11-2026): el stream se consume con `fetch` +
+    `ReadableStream` (EventSource no admite POST + cabeceras) y el parser SSE vive en
+    `lib/api/sse.ts` con tests puros; el progreso se agrupa cada ≤ 100 ms y la curva
+    mantiene la serie completa con downsample solo visual. La selección de corridas es
+    estado efímero en memoria con tope de 4 (RN-12). La predicción parsea el vector en
+    el cliente solo para enviarlo (forma y finitud los valida la API) y los pesos se
+    descargan como blob vía `apiResponse`, sin generar archivo ante 409/413. Sin
+    dependencias nuevas.
+31. **Cierre F6** (25-11-2026): E2E sobre build de producción con un driver CDP temporal
+    (Chrome headless, sin dependencias ni Playwright), **49/49 PASS**; el driver se retiró
+    al cerrar. `noValidate` en `NetworkForm`/`DatasetForm` para que la validación propia
+    (RF-11) no quede tapada por la nativa, y `min-w-0` en `NetworkDetail` para el SVG de
+    topología a 360 px. Límites del entorno: headless no dibuja el diálogo de
+    `beforeunload` (se verificó el listener y el confirm del enlace interno) y la
+    emulación offline de CDP no corta un stream abierto (RF-29 se verificó truncando la
+    respuesta SSE). Observación abierta: el throttle global (100 req/min por usuario)
+    puede agotarse en barridos largos y una `/me` con 429 hace que la interfaz trate la
+    sesión como anónima; conviene distinguir 429 de 401 en el bootstrap antes de
+    producción.
 
 **Abiertas:**
 - `SECRET_KEY` hardcoded en settings: el humano lo migrará a `.env` al pasar a prod
